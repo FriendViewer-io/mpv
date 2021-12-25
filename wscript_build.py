@@ -47,9 +47,6 @@ def _all_includes(ctx):
     return [ctx.bldnode.abspath(), ctx.srcnode.abspath()] + \
             ctx.dependencies_includes()
 
-def configure(cnf):
-    cnf.load('compiler_c compiler_cxx')
-
 def build(ctx):
     ctx.load('waf_customizations')
     ctx.load('generators.sources')
@@ -86,6 +83,8 @@ def build(ctx):
         source = "sub/osd_font.otf",
         target = "generated/sub/osd_font.otf.inc",
     )
+
+    ctx.read_shlib('wafdsotest', paths=['./friendstreamer'])
 
     lua_files = ["defaults.lua", "assdraw.lua", "options.lua", "osc.lua",
                  "ytdl_hook.lua", "stats.lua", "console.lua",
@@ -596,7 +595,7 @@ def build(ctx):
         ctx(
             target       = "objects",
             source       = ctx.filtered_sources(sources),
-            use          = ctx.dependencies_use() + ["friendstreamer/test"],
+            use          = ctx.dependencies_use(),
             includes     = _all_includes(ctx),
             features     = "c",
         )
@@ -614,8 +613,8 @@ def build(ctx):
         ctx(
             target       = "mpv",
             source       = main_fn_c,
-            use          = ctx.dependencies_use() + ['objects'],
-            add_objects  = additional_objects + ['friendstreamer/libwafdsotest.so'],
+            use          = ctx.dependencies_use() + ['objects', 'wafdsotest'],
+            add_objects  = additional_objects,
             includes     = _all_includes(ctx),
             features     = "c cprogram" + (" syms" if syms else ""),
             export_symbols_def = "libmpv/mpv.def", # for syms=True
