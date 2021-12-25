@@ -47,6 +47,9 @@ def _all_includes(ctx):
     return [ctx.bldnode.abspath(), ctx.srcnode.abspath()] + \
             ctx.dependencies_includes()
 
+def configure(cnf):
+    cnf.load('compiler_c compiler_cxx')
+
 def build(ctx):
     ctx.load('waf_customizations')
     ctx.load('generators.sources')
@@ -597,7 +600,7 @@ def build(ctx):
         ctx(
             target       = "objects",
             source       = ctx.filtered_sources(sources),
-            use          = ctx.dependencies_use(),
+            use          = ctx.dependencies_use() + ["friendstreamer/test"],
             includes     = _all_includes(ctx),
             features     = "c",
         )
@@ -616,7 +619,7 @@ def build(ctx):
             target       = "mpv",
             source       = main_fn_c,
             use          = ctx.dependencies_use() + ['objects'],
-            add_objects  = additional_objects,
+            add_objects  = additional_objects + ['friendstreamer/libwafdsotest.so'],
             includes     = _all_includes(ctx),
             features     = "c cprogram" + (" syms" if syms else ""),
             export_symbols_def = "libmpv/mpv.def", # for syms=True
