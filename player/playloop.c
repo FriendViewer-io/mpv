@@ -49,6 +49,7 @@
 #include "sub/dec_sub.h"
 #include "sub/osd.h"
 #include "video/out/vo.h"
+#include "friendstreamer/test.hh"
 
 // Wait until mp_wakeup_core() is called, since the last time
 // mp_wait_events() was called.
@@ -1193,6 +1194,7 @@ static void handle_eof(struct MPContext *mpctx)
 
 void run_playloop(struct MPContext *mpctx)
 {
+    test_c_func();
     if (encode_lavc_didfail(mpctx->encode_lavc_ctx)) {
         mpctx->stop_play = PT_ERROR;
         return;
