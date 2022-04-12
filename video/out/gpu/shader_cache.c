@@ -339,7 +339,7 @@ void gl_sc_uniform_image2D_wo(struct gl_shader_cache *sc, const char *name,
 
     struct sc_uniform *u = find_uniform(sc, name);
     u->input.type = RA_VARTYPE_IMG_W;
-    u->glsl_type = "writeonly image2D";
+    u->glsl_type = sc->ra->glsl_es ? "writeonly highp image2D" : "writeonly image2D";
     u->input.binding = gl_sc_next_binding(sc, u->input.type);
     u->v.tex = tex;
 }

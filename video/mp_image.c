@@ -21,6 +21,7 @@
 
 #include <libavutil/mem.h>
 #include <libavutil/common.h>
+#include <libavutil/display.h>
 #include <libavutil/bswap.h>
 #include <libavutil/hwcontext.h>
 #include <libavutil/intreadwrite.h>
@@ -203,6 +204,7 @@ static void mp_image_destructor(void *ptr)
     av_buffer_unref(&mpi->hwctx);
     av_buffer_unref(&mpi->icc_profile);
     av_buffer_unref(&mpi->a53_cc);
+    av_buffer_unref(&mpi->dovi);
     for (int n = 0; n < mpi->num_ff_side_data; n++)
         av_buffer_unref(&mpi->ff_side_data[n].buf);
     talloc_free(mpi->ff_side_data);
@@ -339,6 +341,7 @@ struct mp_image *mp_image_new_ref(struct mp_image *img)
     ref_buffer(&ok, &new->hwctx);
     ref_buffer(&ok, &new->icc_profile);
     ref_buffer(&ok, &new->a53_cc);
+    ref_buffer(&ok, &new->dovi);
 
     new->ff_side_data = talloc_memdup(NULL, new->ff_side_data,
                         new->num_ff_side_data * sizeof(new->ff_side_data[0]));
@@ -380,6 +383,7 @@ struct mp_image *mp_image_new_dummy_ref(struct mp_image *img)
     new->hwctx = NULL;
     new->icc_profile = NULL;
     new->a53_cc = NULL;
+    new->dovi = NULL;
     new->num_ff_side_data = 0;
     new->ff_side_data = NULL;
     return new;
@@ -529,6 +533,7 @@ void mp_image_copy_attributes(struct mp_image *dst, struct mp_image *src)
         }
     }
     assign_bufref(&dst->icc_profile, src->icc_profile);
+    assign_bufref(&dst->dovi, src->dovi);
     assign_bufref(&dst->a53_cc, src->a53_cc);
 }
 
@@ -593,7 +598,7 @@ static bool endian_swap_bytes(void *d, size_t bytes, size_t word_size)
             AV_WL32(ud + x * 2, AV_RB32(ud + x * 2));
         break;
     default:
-        assert(0);
+        MP_ASSERT_UNREACHABLE();
     }
 
     return true;
@@ -973,6 +978,13 @@ struct mp_image *mp_image_from_av_frame(struct AVFrame *src)
         dst->params.alpha = p->alpha;
     }
 
+    sd = av_frame_get_side_data(src, AV_FRAME_DATA_DISPLAYMATRIX);
+    if (sd) {
+        double r = av_display_rotation_get((int32_t *)(sd->data));
+        if (!isnan(r))
+            dst->params.rotate = (((int)(-r) % 360) + 360) % 360;
+    }
+
     sd = av_frame_get_side_data(src, AV_FRAME_DATA_ICC_PROFILE);
     if (sd)
         dst->icc_profile = sd->buf;
@@ -995,6 +1007,12 @@ struct mp_image *mp_image_from_av_frame(struct AVFrame *src)
     sd = av_frame_get_side_data(src, AV_FRAME_DATA_A53_CC);
     if (sd)
         dst->a53_cc = sd->buf;
+
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(57, 16, 100)
+    sd = av_frame_get_side_data(src, AV_FRAME_DATA_DOVI_METADATA);
+    if (sd)
+        dst->dovi = sd->buf;
+#endif
 
     for (int n = 0; n < src->nb_side_data; n++) {
         sd = src->side_data[n];

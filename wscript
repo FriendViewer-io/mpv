@@ -411,15 +411,6 @@ FFmpeg libraries. Git master is recommended."
         'name': '--libavdevice',
         'desc': 'libavdevice',
         'func': check_pkg_config('libavdevice', '>= 57.0.0'),
-    }, {
-        # The following should be removed in 2022 or if libavformat requirement
-        # is bumped to >= 59.8.100
-        'name': 'ffmpeg-aviocontext-bytes-read',
-        'desc': 'FFmpeg AVIOContext bytes_read statistic field',
-        'deps': 'ffmpeg',
-        'func': check_statement(['libavformat/avio.h'],
-                                '(struct AVIOContext){ 0 }.bytes_read = 7357',
-                                use=['ffmpeg']),
     }
 ]
 
@@ -434,6 +425,15 @@ audio_output_features = [
         'desc': 'OSSv4 audio output',
         'func': check_statement(['sys/soundcard.h'], 'int x = SNDCTL_DSP_SETPLAYVOL'),
         'deps': 'posix && gpl',
+    }, {
+        'name': '--pipewire',
+        'desc': 'PipeWire audio output',
+        'func': check_pkg_config('libpipewire-0.3', '>= 0.3.0')
+    }, {
+        'name': '--sndio',
+        'desc': 'sndio audio input/output',
+        'func': check_pkg_config('sndio'),
+        'default': 'disable'
     }, {
         'name': '--pulse',
         'desc': 'PulseAudio audio output',
@@ -496,7 +496,7 @@ video_output_features = [
         'name': '--gbm',
         'desc': 'GBM',
         'deps': 'gbm.h',
-        'func': check_pkg_config('gbm'),
+        'func': check_pkg_config('gbm', '>= 17.1.0'),
     } , {
         'name': '--wayland-scanner',
         'desc': 'wayland-scanner',
@@ -680,14 +680,14 @@ video_output_features = [
         'desc': 'libshaderc SPIR-V compiler (shared library)',
         'deps': '!static-build',
         'groups': ['shaderc'],
-        'func': check_cc(header_name='shaderc/shaderc.h', lib='shaderc_shared'),
+        'func': check_pkg_config('shaderc'),
     }, {
         'name': 'shaderc-static',
         'desc': 'libshaderc SPIR-V compiler (static library)',
         'deps': '!shaderc-shared',
         'groups': ['shaderc'],
-        'func': check_cc(header_name='shaderc/shaderc.h',
-                         lib=['shaderc_combined', 'stdc++']),
+        'func': any_check(check_pkg_config('shaderc_combined'),
+                          check_pkg_config('shaderc_static')),
     }, {
         'name': '--shaderc',
         'desc': 'libshaderc SPIR-V compiler',
@@ -738,7 +738,13 @@ video_output_features = [
     }, {
         'name': '--libplacebo',
         'desc': 'libplacebo support',
-        'func': check_pkg_config('libplacebo >= 3.104.0'),
+        'func': check_pkg_config('libplacebo >= 4.157.0'),
+    }, {
+        'name': 'libplacebo-next',
+        'desc': 'libplacebo v4.190+, needed for vo_gpu_next',
+        'deps': 'libplacebo',
+        'func': check_preprocessor('libplacebo/config.h', 'PL_API_VER >= 190',
+                                   use='libplacebo'),
     }, {
         'name': '--vulkan',
         'desc':  'Vulkan context support',

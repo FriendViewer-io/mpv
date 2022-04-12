@@ -322,15 +322,13 @@ static const struct gl_video_opts gl_video_opts_def = {
     .background = {0, 0, 0, 255},
     .gamma = 1.0f,
     .tone_map = {
-        .curve = TONE_MAPPING_BT_2390,
+        .curve = TONE_MAPPING_AUTO,
         .curve_param = NAN,
         .max_boost = 1.0,
+        .crosstalk = 0.04,
         .decay_rate = 100.0,
         .scene_threshold_low = 5.5,
         .scene_threshold_high = 10.0,
-        .desat = 0.75,
-        .desat_exp = 1.5,
-        .gamut_clipping = 1,
     },
     .early_flush = -1,
     .hwdec_interop = "auto",
@@ -378,13 +376,34 @@ const struct m_sub_options gl_video_conf = {
         {"target-peak", OPT_CHOICE(target_peak, {"auto", 0}),
             M_RANGE(10, 10000)},
         {"tone-mapping", OPT_CHOICE(tone_map.curve,
+            {"auto",     TONE_MAPPING_AUTO},
             {"clip",     TONE_MAPPING_CLIP},
             {"mobius",   TONE_MAPPING_MOBIUS},
             {"reinhard", TONE_MAPPING_REINHARD},
             {"hable",    TONE_MAPPING_HABLE},
             {"gamma",    TONE_MAPPING_GAMMA},
             {"linear",   TONE_MAPPING_LINEAR},
-            {"bt.2390",  TONE_MAPPING_BT_2390})},
+            {"spline",   TONE_MAPPING_SPLINE},
+            {"bt.2390",  TONE_MAPPING_BT_2390},
+            {"bt.2446a", TONE_MAPPING_BT_2446A})},
+        {"tone-mapping-param", OPT_FLOATDEF(tone_map.curve_param)},
+        {"inverse-tone-mapping", OPT_FLAG(tone_map.inverse)},
+        {"tone-mapping-crosstalk", OPT_FLOAT(tone_map.crosstalk),
+            M_RANGE(0.0, 0.3)},
+        {"tone-mapping-max-boost", OPT_FLOAT(tone_map.max_boost),
+            M_RANGE(1.0, 10.0)},
+        {"tone-mapping-mode", OPT_CHOICE(tone_map.mode,
+            {"auto",        TONE_MAP_MODE_AUTO},
+            {"rgb",         TONE_MAP_MODE_RGB},
+            {"max",         TONE_MAP_MODE_MAX},
+            {"hybrid",      TONE_MAP_MODE_HYBRID},
+            {"luma",        TONE_MAP_MODE_LUMA})},
+        {"gamut-mapping-mode", OPT_CHOICE(tone_map.gamut_mode,
+            {"auto",        GAMUT_AUTO},
+            {"clip",        GAMUT_CLIP},
+            {"warn",        GAMUT_WARN},
+            {"desaturate",  GAMUT_DESATURATE},
+            {"darken",      GAMUT_DARKEN})},
         {"hdr-compute-peak", OPT_CHOICE(tone_map.compute_peak,
             {"auto", 0},
             {"yes", 1},
@@ -395,14 +414,6 @@ const struct m_sub_options gl_video_conf = {
             M_RANGE(0, 20.0)},
         {"hdr-scene-threshold-high", OPT_FLOAT(tone_map.scene_threshold_high),
             M_RANGE(0, 20.0)},
-        {"tone-mapping-param", OPT_FLOATDEF(tone_map.curve_param)},
-        {"tone-mapping-max-boost", OPT_FLOAT(tone_map.max_boost),
-            M_RANGE(1.0, 10.0)},
-        {"tone-mapping-desaturate", OPT_FLOAT(tone_map.desat)},
-        {"tone-mapping-desaturate-exponent", OPT_FLOAT(tone_map.desat_exp),
-            M_RANGE(0.0, 20.0)},
-        {"gamut-warning", OPT_FLAG(tone_map.gamut_warning)},
-        {"gamut-clipping", OPT_FLAG(tone_map.gamut_clipping)},
         {"opengl-pbo", OPT_FLAG(pbo)},
         SCALER_OPTS("scale",  SCALER_SCALE),
         SCALER_OPTS("dscale", SCALER_DSCALE),
@@ -467,6 +478,10 @@ const struct m_sub_options gl_video_conf = {
         {"opengl-gamma", OPT_REPLACED("gamma-factor")},
         {"linear-scaling", OPT_REMOVED("Split into --linear-upscaling and "
                                         "--linear-downscaling")},
+        {"gamut-warning", OPT_REMOVED("Replaced by --gamut-mapping-mode=warn")},
+        {"gamut-clipping", OPT_REMOVED("Replaced by --gamut-mapping-mode=desaturate")},
+        {"tone-mapping-desaturate", OPT_REMOVED("Replaced by --tone-mapping-mode")},
+        {"tone-mapping-desaturate-exponent", OPT_REMOVED("Replaced by --tone-mapping-mode")},
         {0}
     },
     .size = sizeof(struct gl_video_opts),
@@ -1397,6 +1412,11 @@ static void hook_prelude(struct gl_video *p, const char *name, int id,
     GLSLHF("#define %s_tex(pos) (%s_mul * vec4(texture(%s_raw, pos)).%s)\n",
            name, name, name, crap);
 
+    if (p->ra->caps & RA_CAP_GATHER) {
+        GLSLHF("#define %s_gather(pos, c) (%s_mul * vec4("
+               "textureGather(%s_raw, pos, c)))\n", name, name, name);
+    }
+
     // Since the extra matrix multiplication impacts performance,
     // skip it unless the texture was actually rotated
     if (gl_transform_eq(img.transform, identity_trans)) {
@@ -1697,9 +1717,17 @@ static void reinit_scaler(struct gl_video *p, struct scaler *scaler,
 
     uninit_scaler(p, scaler);
 
+    struct filter_kernel bare_window;
     const struct filter_kernel *t_kernel = mp_find_filter_kernel(conf->kernel.name);
     const struct filter_window *t_window = mp_find_filter_window(conf->window.name);
     bool is_tscale = scaler->index == SCALER_TSCALE;
+    if (!t_kernel) {
+        const struct filter_window *window = mp_find_filter_window(conf->kernel.name);
+        if (window) {
+            bare_window = (struct filter_kernel) { .f = *window };
+            t_kernel = &bare_window;
+        }
+    }
 
     scaler->conf = *conf;
     scaler->conf.kernel.name = (char *)handle_scaler_opt(conf->kernel.name, is_tscale);
@@ -2607,6 +2635,47 @@ static void pass_colormanage(struct gl_video *p, struct mp_colorspace src,
     if (!src.sig_peak)
         src.sig_peak = mp_trc_nom_peak(src.gamma);
 
+    // Whitelist supported modes
+    switch (p->opts.tone_map.curve) {
+    case TONE_MAPPING_AUTO:
+    case TONE_MAPPING_CLIP:
+    case TONE_MAPPING_MOBIUS:
+    case TONE_MAPPING_REINHARD:
+    case TONE_MAPPING_HABLE:
+    case TONE_MAPPING_GAMMA:
+    case TONE_MAPPING_LINEAR:
+    case TONE_MAPPING_BT_2390:
+        break;
+    default:
+        MP_WARN(p, "Tone mapping curve unsupported by vo_gpu, falling back.\n");
+        p->opts.tone_map.curve = TONE_MAPPING_AUTO;
+        break;
+    }
+
+    switch (p->opts.tone_map.mode) {
+    case TONE_MAP_MODE_AUTO:
+    case TONE_MAP_MODE_RGB:
+    case TONE_MAP_MODE_MAX:
+    case TONE_MAP_MODE_HYBRID:
+        break;
+    default:
+        MP_WARN(p, "Tone mapping mode unsupported by vo_gpu, falling back.\n");
+        p->opts.tone_map.mode = TONE_MAP_MODE_AUTO;
+        break;
+    }
+
+    switch (p->opts.tone_map.gamut_mode) {
+    case GAMUT_AUTO:
+    case GAMUT_WARN:
+    case GAMUT_CLIP:
+    case GAMUT_DESATURATE:
+        break;
+    default:
+        MP_WARN(p, "Gamut mapping mode unsupported by vo_gpu, falling back.\n");
+        p->opts.tone_map.gamut_mode = GAMUT_AUTO;
+        break;
+    }
+
     struct gl_tone_map_opts tone_map = p->opts.tone_map;
     bool detect_peak = tone_map.compute_peak >= 0 && mp_trc_is_hdr(src.gamma)
                        && src.sig_peak > dst.sig_peak;
@@ -2690,9 +2759,9 @@ static void pass_dither(struct gl_video *p)
 
             struct image img = image_wrap(p->error_diffusion_tex[0], PLANE_RGB, p->components);
 
-            // 1024 is minimal required number of invocation allowed in single
-            // work group in OpenGL. Use it for maximal performance.
-            int block_size = MPMIN(1024, o_h);
+            // Ensure the block size doesn't exceed the maximum of the
+            // implementation.
+            int block_size = MPMIN(p->ra->max_compute_group_threads, o_h);
 
             pass_describe(p, "dither=error-diffusion (kernel=%s, depth=%d)",
                              kernel->name, dst_depth);
@@ -3992,6 +4061,10 @@ static const char *handle_scaler_opt(const char *name, bool tscale)
         if (kernel && (!tscale || !kernel->polar))
                 return kernel->f.name;
 
+        const struct filter_window *window = mp_find_filter_window(name);
+        if (window)
+            return window->name;
+
         for (const char *const *filter = tscale ? fixed_tscale_filters
                                                 : fixed_scale_filters;
              *filter; filter++) {
@@ -4105,6 +4178,14 @@ static int validate_scaler_opt(struct mp_log *log, const m_option_t *opt,
             if (!tscale || !mp_filter_kernels[n].polar)
                 mp_info(log, "    %s\n", mp_filter_kernels[n].f.name);
         }
+        for (int n = 0; mp_filter_windows[n].name; n++) {
+            for (int m = 0; mp_filter_kernels[m].f.name; m++) {
+                if (!strcmp(mp_filter_windows[n].name, mp_filter_kernels[m].f.name))
+                    goto next_window; // don't log duplicates
+            }
+            mp_info(log, "    %s\n", mp_filter_windows[n].name);
+next_window: ;
+        }
         if (s[0])
             mp_fatal(log, "No scaler named '%s' found!\n", s);
     }
@@ -4217,7 +4298,7 @@ static void gl_video_dr_free_buffer(void *opaque, uint8_t *data)
         }
     }
     // not found - must not happen
-    assert(0);
+    MP_ASSERT_UNREACHABLE();
 }
 
 struct mp_image *gl_video_get_image(struct gl_video *p, int imgfmt, int w, int h,

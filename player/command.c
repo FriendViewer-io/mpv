@@ -155,7 +155,7 @@ static void hook_remove(struct MPContext *mpctx, struct hook_handler *h)
             return;
         }
     }
-    assert(0);
+    MP_ASSERT_UNREACHABLE();
 }
 
 bool mp_hook_test_completion(struct MPContext *mpctx, char *type)
@@ -993,7 +993,7 @@ static int parse_node_chapters(struct MPContext *mpctx,
         }
     }
 
-    mp_notify(mpctx, MPV_EVENT_CHAPTER_CHANGE, NULL);
+    mp_notify(mpctx, MP_EVENT_CHAPTER_CHANGE, NULL);
     mp_notify_property(mpctx, "chapter-list");
 
     return M_PROPERTY_OK;
@@ -3388,14 +3388,14 @@ static int mp_property_option_info(void *ctx, struct m_property *prop,
         char **choices = NULL;
 
         if (opt->type == &m_option_type_choice) {
-            struct m_opt_choice_alternatives *alt = opt->priv;
+            const struct m_opt_choice_alternatives *alt = opt->priv;
             int num = 0;
             for ( ; alt->name; alt++)
                 MP_TARRAY_APPEND(NULL, choices, num, alt->name);
             MP_TARRAY_APPEND(NULL, choices, num, NULL);
         }
         if (opt->type == &m_option_type_obj_settings_list) {
-            struct m_obj_list *objs = opt->priv;
+            const struct m_obj_list *objs = opt->priv;
             int num = 0;
             for (int n = 0; ; n++) {
                 struct m_obj_desc desc = {0};
@@ -3770,8 +3770,8 @@ static const char *const *const mp_event_property_change[] = {
     E(MPV_EVENT_END_FILE, "*"),
     E(MPV_EVENT_FILE_LOADED, "*"),
     E(MP_EVENT_CHANGE_ALL, "*"),
-    E(MPV_EVENT_TRACKS_CHANGED, "track-list", "current-tracks"),
-    E(MPV_EVENT_TRACK_SWITCHED, "track-list", "current-tracks"),
+    E(MP_EVENT_TRACKS_CHANGED, "track-list", "current-tracks"),
+    E(MP_EVENT_TRACK_SWITCHED, "track-list", "current-tracks"),
     E(MPV_EVENT_IDLE, "*"),
     E(MPV_EVENT_TICK, "time-pos", "audio-pts", "stream-pos", "avsync",
       "percent-pos", "time-remaining", "playtime-remaining", "playback-time",
@@ -3794,8 +3794,8 @@ static const char *const *const mp_event_property_change[] = {
       "audio-out-params", "volume-max", "mixer-active"),
     E(MPV_EVENT_SEEK, "seeking", "core-idle", "eof-reached"),
     E(MPV_EVENT_PLAYBACK_RESTART, "seeking", "core-idle", "eof-reached"),
-    E(MPV_EVENT_METADATA_UPDATE, "metadata", "filtered-metadata", "media-title"),
-    E(MPV_EVENT_CHAPTER_CHANGE, "chapter", "chapter-metadata"),
+    E(MP_EVENT_METADATA_UPDATE, "metadata", "filtered-metadata", "media-title"),
+    E(MP_EVENT_CHAPTER_CHANGE, "chapter", "chapter-metadata"),
     E(MP_EVENT_CACHE_UPDATE,
       "demuxer-cache-duration", "demuxer-cache-idle", "paused-for-cache",
       "demuxer-cache-time", "cache-buffering-state", "cache-speed",
@@ -4188,7 +4188,7 @@ static void recreate_overlays(struct MPContext *mpctx)
     struct command_ctx *cmd = mpctx->command_ctx;
     int overlay_next = !cmd->overlay_osd_current;
     struct sub_bitmaps *new = &cmd->overlay_osd[overlay_next];
-    new->format = SUBBITMAP_RGBA;
+    new->format = SUBBITMAP_BGRA;
     new->change_id = 1;
 
     bool valid = false;
@@ -6602,9 +6602,6 @@ void mp_option_change_callback(void *ctx, struct m_config_option *co, int flags,
 
     if (co)
         mp_notify_property(mpctx, co->name);
-
-    if (opt_ptr == &opts->pause)
-        mp_notify(mpctx, opts->pause ? MPV_EVENT_PAUSE : MPV_EVENT_UNPAUSE, 0);
 
     if (self_update)
         return;

@@ -284,14 +284,14 @@ static struct sub_bitmaps *render_object(struct osd_state *osd,
 {
     int format = SUBBITMAP_LIBASS;
     if (!sub_formats[format] || osd->opts->force_rgba_osd)
-        format = SUBBITMAP_RGBA;
+        format = SUBBITMAP_BGRA;
 
     struct sub_bitmaps *res = NULL;
 
     check_obj_resize(osd, osdres, obj);
 
     if (obj->type == OSDTYPE_SUB) {
-        if (obj->sub)
+        if (obj->sub && sub_is_primary_visible(obj->sub))
             res = sub_get_bitmaps(obj->sub, obj->vo_res, format, video_pts);
     } else if (obj->type == OSDTYPE_SUB2) {
         if (obj->sub && sub_is_secondary_visible(obj->sub))
@@ -506,8 +506,10 @@ void osd_rescale_bitmaps(struct sub_bitmaps *imgs, int frame_w, int frame_h,
     int vidh = res.h - res.mt - res.mb;
     double xscale = (double)vidw / frame_w;
     double yscale = (double)vidh / frame_h;
-    if (compensate_par < 0)
+    if (compensate_par < 0) {
+        assert(res.display_par);
         compensate_par = xscale / yscale / res.display_par;
+    }
     if (compensate_par > 0)
         xscale /= compensate_par;
     int cx = vidw / 2 - (int)(frame_w * xscale) / 2;

@@ -73,12 +73,6 @@ Unsupported Lua APIs and their JS alternatives
 
 ``utils.to_string(v)``  see ``dump`` below.
 
-``mp.suspend()`` JS: none (deprecated).
-
-``mp.resume()`` JS: none (deprecated).
-
-``mp.resume_all()`` JS: none (deprecated).
-
 ``mp.get_next_timeout()`` see event loop below.
 
 ``mp.dispatch_events([allow_wait])`` see event loop below.
@@ -221,9 +215,9 @@ Additional utilities
     ``undefined`` if the variable is not defined.
 
 ``mp.utils.get_user_path(path)``
-    Expands (mpv) meta paths like ``~/x``, ``~~/y``, ``~~desktop/z`` etc.
-    ``read_file``, ``write_file``, ``append_file`` and ``require`` already use
-    this internally.
+    Trivial wrapper of the ``expand-path`` mpv command, returns a string.
+    ``read_file``, ``write_file``, ``append_file`` and ``require`` already
+    expand the path internally and accept mpv meta-paths like ``~~desktop/foo``.
 
 ``mp.utils.read_file(fname [,max])``
     Returns the content of file ``fname`` as string. If ``max`` is provided and

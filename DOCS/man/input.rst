@@ -1600,10 +1600,8 @@ This list uses the event name field value, and the C API symbol in brackets:
     ``data``
         The new value of the property.
 
-The following events also happen, but are deprecated: ``tracks-changed``,
-``track-switched``, ``pause``, ``unpause``, ``metadata-update``, ``idle``,
-``tick``, ``chapter-change``. Use ``mpv_observe_property()``
-(Lua: ``mp.observe_property()``) instead.
+The following events also happen, but are deprecated: ``idle``, ``tick``
+Use ``mpv_observe_property()`` (Lua: ``mp.observe_property()``) instead.
 
 Hooks
 ~~~~~
@@ -3386,6 +3384,10 @@ Property list
     the value currently always being a string. Note that the options array is
     not a map, as order matters and duplicate entries are possible. Recursive
     profiles are not expanded, and show up as special ``profile`` options.
+
+    The ``profile-restore`` field is currently missing if it holds the default
+    value (either because it was not set, or set explicitly to ``default``),
+    but in the future it might hold the value ``default``.
 
 ``command-list``
     The list of input commands. This returns an array of maps, where each map

@@ -131,7 +131,7 @@ def build(ctx):
             target    = "generated/wayland/xdg-decoration-unstable-v1.h")
 
     ctx(features = "ebml_header", target = "generated/ebml_types.h")
-    ctx(features = "ebml_definitions", target = "generated/ebml_defs.c")
+    ctx(features = "ebml_definitions", target = "generated/ebml_defs.inc")
 
     def swift(task):
         src = [x.abspath() for x in task.inputs]
@@ -248,8 +248,10 @@ def build(ctx):
         ( "audio/out/ao_opensles.c",             "opensles" ),
         ( "audio/out/ao_oss.c",                  "oss-audio" ),
         ( "audio/out/ao_pcm.c" ),
+        ( "audio/out/ao_pipewire.c",             "pipewire" ),
         ( "audio/out/ao_pulse.c",                "pulse" ),
         ( "audio/out/ao_sdl.c",                  "sdl2-audio" ),
+        ( "audio/out/ao_sndio.c",                "sndio" ),
         ( "audio/out/ao_wasapi.c",               "wasapi" ),
         ( "audio/out/ao_wasapi_changenotify.c",  "wasapi" ),
         ( "audio/out/ao_wasapi_utils.c",         "wasapi" ),
@@ -453,6 +455,7 @@ def build(ctx):
         ( "video/out/gpu/utils.c" ),
         ( "video/out/gpu/video.c" ),
         ( "video/out/gpu/video_shaders.c" ),
+        ( "video/out/gpu_next/context.c",        "libplacebo-next" ),
         ( "video/out/hwdec/hwdec_cuda.c",        "cuda-interop" ),
         ( "video/out/hwdec/hwdec_cuda_gl.c",     "cuda-interop && gl" ),
         ( "video/out/hwdec/hwdec_cuda_vk.c",     "cuda-interop && vulkan" ),
@@ -494,6 +497,7 @@ def build(ctx):
         ( "video/out/vo_direct3d.c",             "direct3d" ),
         ( "video/out/vo_drm.c",                  "drm" ),
         ( "video/out/vo_gpu.c" ),
+        ( "video/out/vo_gpu_next.c",             "libplacebo-next" ),
         ( "video/out/vo_image.c" ),
         ( "video/out/vo_lavc.c" ),
         ( "video/out/vo_libmpv.c" ),
@@ -711,7 +715,7 @@ def build(ctx):
             PRIV_LIBS    = get_deps(),
         )
 
-        headers = ["client.h", "opengl_cb.h", "render.h",
+        headers = ["client.h", "render.h",
                    "render_gl.h", "stream_cb.h"]
         for f in headers:
             ctx.install_as(ctx.env.INCLUDEDIR + '/mpv/' + f, 'libmpv/' + f)

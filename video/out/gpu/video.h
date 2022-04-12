@@ -88,27 +88,46 @@ enum blend_subs_mode {
 };
 
 enum tone_mapping {
+    TONE_MAPPING_AUTO,
     TONE_MAPPING_CLIP,
     TONE_MAPPING_MOBIUS,
     TONE_MAPPING_REINHARD,
     TONE_MAPPING_HABLE,
     TONE_MAPPING_GAMMA,
     TONE_MAPPING_LINEAR,
+    TONE_MAPPING_SPLINE,
     TONE_MAPPING_BT_2390,
+    TONE_MAPPING_BT_2446A,
+};
+
+enum tone_mapping_mode {
+    TONE_MAP_MODE_AUTO,
+    TONE_MAP_MODE_RGB,
+    TONE_MAP_MODE_MAX,
+    TONE_MAP_MODE_HYBRID,
+    TONE_MAP_MODE_LUMA,
+};
+
+enum gamut_mode {
+    GAMUT_AUTO,
+    GAMUT_CLIP,
+    GAMUT_WARN,
+    GAMUT_DESATURATE,
+    GAMUT_DARKEN,
 };
 
 struct gl_tone_map_opts {
     int curve;
     float curve_param;
     float max_boost;
+    int inverse;
+    float crosstalk;
+    int mode;
     int compute_peak;
     float decay_rate;
     float scene_threshold_low;
     float scene_threshold_high;
-    float desat;
-    float desat_exp;
-    int gamut_warning; // bool
-    int gamut_clipping; // bool
+    int gamut_mode;
 };
 
 struct gl_video_opts {

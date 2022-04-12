@@ -23,6 +23,15 @@
 // 0-terminated list of desktop GL versions a backend should try to
 // initialize. Each entry is the minimum required version.
 const int mpgl_min_required_gl_versions[] = {
+    /*
+     * Nvidia drivers will not provide the highest supported version
+     * when 320 core is requested. Instead, it just returns 3.2. This
+     * would be bad, as we actually want compute shaders that require
+     * 4.2, so we have to request a sufficiently high version. We use
+     * 440 to maximise driver compatibility as we don't need anything
+     * from newer versions.
+     */
+    440,
     320,
     210,
     0
@@ -214,6 +223,8 @@ int ra_gl_ctx_color_depth(struct ra_swapchain *sw)
 bool ra_gl_ctx_start_frame(struct ra_swapchain *sw, struct ra_fbo *out_fbo)
 {
     struct priv *p = sw->priv;
+    if (!out_fbo)
+        return true;
     *out_fbo = (struct ra_fbo) {
          .tex = p->wrapped_fb,
          .flip = !p->params.flipped, // OpenGL FBs are normally flipped

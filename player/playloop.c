@@ -181,10 +181,6 @@ void set_pause_state(struct MPContext *mpctx, bool user_pause)
         } else {
             (void)get_relative_time(mpctx); // ignore time that passed during pause
         }
-
-        // For some reason, these events are supposed to be sent even if only
-        // the internal pause state changed (and "pause" property didn't)... OK.
-        mp_notify(mpctx, opts->pause ? MPV_EVENT_PAUSE : MPV_EVENT_UNPAUSE, 0);
     }
 
     update_core_idle_state(mpctx);
@@ -946,8 +942,8 @@ static void handle_keep_open(struct MPContext *mpctx)
 {
     struct MPOpts *opts = mpctx->opts;
     if (opts->keep_open && mpctx->stop_play == AT_END_OF_FILE &&
-        (opts->keep_open == 2 || !playlist_get_next(mpctx->playlist, 1)) &&
-        opts->loop_times == 1)
+        (opts->keep_open == 2 ||
+        (!playlist_get_next(mpctx->playlist, 1) && opts->loop_times == 1)))
     {
         mpctx->stop_play = KEEP_PLAYING;
         if (mpctx->vo_chain) {
@@ -967,7 +963,7 @@ static void handle_chapter_change(struct MPContext *mpctx)
     int chapter = get_current_chapter(mpctx);
     if (chapter != mpctx->last_chapter) {
         mpctx->last_chapter = chapter;
-        mp_notify(mpctx, MPV_EVENT_CHAPTER_CHANGE, NULL);
+        mp_notify(mpctx, MP_EVENT_CHAPTER_CHANGE, NULL);
     }
 }
 

@@ -26,6 +26,20 @@ Interface changes
 
 ::
 
+ --- mpv 0.35.0 ---
+    - add the `--vo=gpu-next` video output driver, as well as the options
+      `--allow-delayed-peak-detect`, `--builtin-scalers`,
+      `--interpolation-preserve` `--lut`, `--lut-type`, `--image-lut`,
+      `--image-lut-type` and `--target-lut` along with it.
+    - add `--target-colorspace-hint`
+    - add `--tone-mapping-crosstalk`
+    - add `--tone-mapping` options `auto`, `spline` and `bt.2446a`
+    - add `--inverse-tone-mapping`
+    - add `--gamut-mapping-mode`, replacing `--gamut-clipping` and `--gamut-warning`
+    - add `--tone-mapping-mode`, replacing `--tone-mapping-desaturate` and
+      `--tone-mapping-desaturate-exponent`.
+    - add `dolbyvision` sub-parameter to `format` video filter
+    - `--sub-visibility` no longer has any effect on secondary subtitles
  --- mpv 0.34.0 ---
     - deprecate selecting by card number with `--drm-connector`, add
       `--drm-device` which can be used instead

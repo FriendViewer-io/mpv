@@ -80,7 +80,7 @@ enum mp_voctrl {
     // be updated and redrawn. Optional; emulated if not available.
     VOCTRL_REDRAW_FRAME,
 
-    // Only used internally in vo_opengl_cb
+    // Only used internally in vo_libmpv
     VOCTRL_PREINIT,
     VOCTRL_UNINIT,
     VOCTRL_RECONFIG,
@@ -122,7 +122,7 @@ enum mp_voctrl {
     VOCTRL_GET_HIDPI_SCALE,             // double*
     VOCTRL_GET_DISPLAY_RES,             // int[2]
 
-    /* private to vo_gpu */
+    /* private to vo_gpu and vo_gpu_next */
     VOCTRL_EXTERNAL_RESIZE,
 };
 

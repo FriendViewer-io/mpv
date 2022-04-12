@@ -26,6 +26,7 @@
 #include <gbm.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <drm_fourcc.h>
 
 #include "libmpv/render_gl.h"
 #include "video/out/drm_common.h"
@@ -42,11 +43,6 @@
 
 #ifndef EGL_PLATFORM_GBM_KHR
 #define EGL_PLATFORM_GBM_KHR 0x31D7
-#endif
-
-#ifndef EGL_EXT_platform_base
-typedef EGLDisplay (EGLAPIENTRYP PFNEGLGETPLATFORMDISPLAYEXTPROC)
-    (EGLenum platform, void *native_display, const EGLint *attrib_list);
 #endif
 
 struct framebuffer
@@ -91,6 +87,8 @@ struct priv {
     unsigned int num_vsync_fences;
 
     uint32_t gbm_format;
+    uint64_t *gbm_modifiers;
+    unsigned int num_gbm_modifiers;
 
     bool active;
     bool waiting_for_flip;
@@ -116,10 +114,18 @@ static const char *gbm_format_to_string(uint32_t format)
         return "GBM_FORMAT_XRGB8888";
     case GBM_FORMAT_ARGB8888:
         return "GBM_FORMAT_ARGB8888";
+    case GBM_FORMAT_XBGR8888:
+        return "GBM_FORMAT_XBGR8888";
+    case GBM_FORMAT_ABGR8888:
+        return "GBM_FORMAT_ABGR8888";
     case GBM_FORMAT_XRGB2101010:
         return "GBM_FORMAT_XRGB2101010";
     case GBM_FORMAT_ARGB2101010:
         return "GBM_FORMAT_ARGB2101010";
+    case GBM_FORMAT_XBGR2101010:
+        return "GBM_FORMAT_XBGR2101010";
+    case GBM_FORMAT_ABGR2101010:
+        return "GBM_FORMAT_ABGR2101010";
     default:
         return "UNKNOWN";
     }
@@ -136,10 +142,18 @@ static uint32_t fallback_format_for(uint32_t format)
         return GBM_FORMAT_ARGB8888;
     case GBM_FORMAT_ARGB8888:
         return GBM_FORMAT_XRGB8888;
+    case GBM_FORMAT_XBGR8888:
+        return GBM_FORMAT_ABGR8888;
+    case GBM_FORMAT_ABGR8888:
+        return GBM_FORMAT_XBGR8888;
     case GBM_FORMAT_XRGB2101010:
         return GBM_FORMAT_ARGB2101010;
     case GBM_FORMAT_ARGB2101010:
         return GBM_FORMAT_XRGB2101010;
+    case GBM_FORMAT_XBGR2101010:
+        return GBM_FORMAT_ABGR2101010;
+    case GBM_FORMAT_ABGR2101010:
+        return GBM_FORMAT_XBGR2101010;
     default:
         return 0;
     }
@@ -180,18 +194,15 @@ static int match_config_to_visual(void *user_data, EGLConfig *configs, int num_c
 
 static EGLDisplay egl_get_display(struct gbm_device *gbm_device)
 {
-    const char *ext = eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
+    EGLDisplay ret;
 
-    if (ext) {
-        PFNEGLGETPLATFORMDISPLAYEXTPROC get_platform_display = NULL;
-        get_platform_display = (void *) eglGetProcAddress("eglGetPlatformDisplayEXT");
+    ret = mpegl_get_display(EGL_PLATFORM_GBM_MESA, "EGL_MESA_platform_gbm", gbm_device);
+    if (ret != EGL_NO_DISPLAY)
+        return ret;
 
-        if (get_platform_display && strstr(ext, "EGL_MESA_platform_gbm"))
-            return get_platform_display(EGL_PLATFORM_GBM_MESA, gbm_device, NULL);
-
-        if (get_platform_display && strstr(ext, "EGL_KHR_platform_gbm"))
-            return get_platform_display(EGL_PLATFORM_GBM_KHR, gbm_device, NULL);
-    }
+    ret = mpegl_get_display(EGL_PLATFORM_GBM_KHR, "EGL_KHR_platform_gbm", gbm_device);
+    if (ret != EGL_NO_DISPLAY)
+        return ret;
 
     return eglGetDisplay(gbm_device);
 }
@@ -217,9 +228,14 @@ static bool init_egl(struct ra_ctx *ctx)
                                  &p->egl.context,
                                  &config))
         return false;
+
     MP_VERBOSE(ctx, "Initializing EGL surface\n");
-    p->egl.surface
-        = eglCreateWindowSurface(p->egl.display, config, p->gbm.surface, NULL);
+    p->egl.surface = mpegl_create_window_surface(
+        p->egl.display, config, p->gbm.surface);
+    if (p->egl.surface == EGL_NO_SURFACE) {
+        p->egl.surface = eglCreateWindowSurface(
+            p->egl.display, config, p->gbm.surface, NULL);
+    }
     if (p->egl.surface == EGL_NO_SURFACE) {
         MP_ERR(ctx, "Failed to create EGL surface.\n");
         return false;
@@ -239,12 +255,22 @@ static bool init_gbm(struct ra_ctx *ctx)
 
     MP_VERBOSE(ctx->vo, "Initializing GBM surface (%d x %d)\n",
         p->draw_surface_size.width, p->draw_surface_size.height);
-    p->gbm.surface = gbm_surface_create(
-        p->gbm.device,
-        p->draw_surface_size.width,
-        p->draw_surface_size.height,
-        p->gbm_format,
-        GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
+    if (p->num_gbm_modifiers == 0) {
+        p->gbm.surface = gbm_surface_create(
+            p->gbm.device,
+            p->draw_surface_size.width,
+            p->draw_surface_size.height,
+            p->gbm_format,
+            GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
+    } else {
+        p->gbm.surface = gbm_surface_create_with_modifiers(
+            p->gbm.device,
+            p->draw_surface_size.width,
+            p->draw_surface_size.height,
+            p->gbm_format,
+            p->gbm_modifiers,
+            p->num_gbm_modifiers);
+    }
     if (!p->gbm.surface) {
         MP_ERR(ctx->vo, "Failed to create GBM surface.\n");
         return false;
@@ -273,16 +299,39 @@ static void update_framebuffer_from_bo(struct ra_ctx *ctx, struct gbm_bo *bo)
     fb->fd     = p->kms->fd;
     fb->width  = gbm_bo_get_width(bo);
     fb->height = gbm_bo_get_height(bo);
-    uint32_t stride = gbm_bo_get_stride(bo);
-    uint32_t handle = gbm_bo_get_handle(bo).u32;
+    uint64_t modifier = gbm_bo_get_modifier(bo);
 
-    int ret = drmModeAddFB2(fb->fd, fb->width, fb->height,
+    int ret;
+    if (p->num_gbm_modifiers == 0 || modifier == DRM_FORMAT_MOD_INVALID) {
+        uint32_t stride = gbm_bo_get_stride(bo);
+        uint32_t handle = gbm_bo_get_handle(bo).u32;
+        ret = drmModeAddFB2(fb->fd, fb->width, fb->height,
                             p->gbm_format,
                             (uint32_t[4]){handle, 0, 0, 0},
                             (uint32_t[4]){stride, 0, 0, 0},
                             (uint32_t[4]){0, 0, 0, 0},
                             &fb->id, 0);
+    } else {
+        MP_VERBOSE(ctx, "GBM surface using modifier 0x%"PRIX64"\n", modifier);
 
+        uint32_t handles[4] = {0};
+        uint32_t strides[4] = {0};
+        uint32_t offsets[4] = {0};
+        uint64_t modifiers[4] = {0};
+
+        const int num_planes = gbm_bo_get_plane_count(bo);
+        for (int i = 0; i < num_planes; ++i) {
+            handles[i] = gbm_bo_get_handle_for_plane(bo, i).u32;
+            strides[i] = gbm_bo_get_stride_for_plane(bo, i);
+            offsets[i] = gbm_bo_get_offset(bo, i);
+            modifiers[i] = modifier;
+        }
+
+        ret = drmModeAddFB2WithModifiers(fb->fd, fb->width, fb->height,
+                                         p->gbm_format,
+                                         handles, strides, offsets, modifiers,
+                                         &fb->id, DRM_MODE_FB_MODIFIERS);
+    }
     if (ret) {
         MP_ERR(ctx->vo, "Failed to create framebuffer: %s\n", mp_strerror(errno));
     }
@@ -711,6 +760,50 @@ static bool probe_gbm_format(struct ra_ctx *ctx, uint32_t argb_format, uint32_t 
     return result;
 }
 
+static bool probe_gbm_modifiers(struct ra_ctx *ctx)
+{
+    struct priv *p = ctx->priv;
+
+    if (!p->kms->atomic_context) {
+        MP_VERBOSE(ctx->vo, "Not using DRM Atomic: Not using modifiers.\n");
+        return false;
+    }
+
+    drmModePropertyBlobPtr blob =
+        drm_object_get_property_blob(p->kms->atomic_context->draw_plane, "IN_FORMATS");
+    if (!blob) {
+        MP_VERBOSE(ctx->vo, "Failed to find IN_FORMATS property\n");
+        return false;
+    }
+
+    struct drm_format_modifier_blob *data = blob->data;
+    uint32_t *fmts = (uint32_t *)((char *)data + data->formats_offset);
+    struct drm_format_modifier *mods =
+        (struct drm_format_modifier *)((char *)data + data->modifiers_offset);
+
+    for (unsigned int j = 0; j < data->count_modifiers; ++j) {
+        struct drm_format_modifier *mod = &mods[j];
+        for (uint64_t k = 0; k < 64; ++k) {
+            if (mod->formats & (1ull << k)) {
+                uint32_t fmt = fmts[k + mod->offset];
+                if (fmt == p->gbm_format) {
+                    MP_TARRAY_APPEND(p, p->gbm_modifiers,
+                                        p->num_gbm_modifiers, mod->modifier);
+                    MP_VERBOSE(ctx->vo, "Supported modifier: 0x%"PRIX64"\n",
+                                (uint64_t)mod->modifier);
+                    break;
+                }
+            }
+        }
+    }
+    drmModeFreePropertyBlob(blob);
+
+    if (p->num_gbm_modifiers == 0) {
+        MP_VERBOSE(ctx->vo, "No supported DRM modifiers found.\n");
+    }
+    return true;
+}
+
 static void drm_egl_get_vsync(struct ra_ctx *ctx, struct vo_vsync_info *info)
 {
     struct priv *p = ctx->priv;
@@ -760,12 +853,23 @@ static bool drm_egl_init(struct ra_ctx *ctx)
 
     uint32_t argb_format;
     uint32_t xrgb_format;
-    if (DRM_OPTS_FORMAT_XRGB2101010 == ctx->vo->opts->drm_opts->drm_format) {
+    switch (ctx->vo->opts->drm_opts->drm_format) {
+    case DRM_OPTS_FORMAT_XRGB2101010:
         argb_format = GBM_FORMAT_ARGB2101010;
         xrgb_format = GBM_FORMAT_XRGB2101010;
-    } else {
+        break;
+    case DRM_OPTS_FORMAT_XBGR2101010:
+        argb_format = GBM_FORMAT_ABGR2101010;
+        xrgb_format = GBM_FORMAT_XBGR2101010;
+        break;
+    case DRM_OPTS_FORMAT_XBGR8888:
+        argb_format = GBM_FORMAT_ABGR8888;
+        xrgb_format = GBM_FORMAT_XBGR8888;
+        break;
+    default:
         argb_format = GBM_FORMAT_ARGB8888;
         xrgb_format = GBM_FORMAT_XRGB8888;
+        break;
     }
 
     if (!probe_gbm_format(ctx, argb_format, xrgb_format)) {
@@ -773,6 +877,9 @@ static bool drm_egl_init(struct ra_ctx *ctx)
                gbm_format_to_string(argb_format), gbm_format_to_string(xrgb_format));
         return false;
     }
+
+    // It is not fatal if this fails. We'll just try without modifiers.
+    probe_gbm_modifiers(ctx);
 
     if (!init_gbm(ctx)) {
         MP_ERR(ctx->vo, "Failed to setup GBM.\n");
@@ -800,6 +907,7 @@ static bool drm_egl_init(struct ra_ctx *ctx)
         MP_ERR(ctx, "Failed to lock GBM surface.\n");
         return false;
     }
+
     enqueue_bo(ctx, new_bo);
     update_framebuffer_from_bo(ctx, new_bo);
     if (!p->fb || !p->fb->id) {

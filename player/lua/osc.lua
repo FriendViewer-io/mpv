@@ -49,6 +49,9 @@ local user_opts = {
     windowcontrols_alignment = "right", -- which side to show window controls on
     greenandgrumpy = false,     -- disable santa hat
     livemarkers = true,         -- update seekbar chapter markers on duration change
+    chapters_osd = true,        -- whether to show chapters OSD on next/prev
+    playlist_osd = true,        -- whether to show playlist OSD on next/prev
+    chapter_fmt = "Chapter: %s", -- chapter print format for seekbar-hover. "no" to disable
 }
 
 -- read options from config and command-line
@@ -121,6 +124,7 @@ local state = {
     border = true,
     maximized = false,
     osd = mp.create_osd_overlay("ass-events"),
+    chapter_list = {},                      -- sorted by time
 }
 
 local window_control_box_width = 80
@@ -601,16 +605,13 @@ end
 
 -- returns nil or a chapter element from the native property chapter-list
 function get_chapter(possec)
-    local cl = mp.get_property_native("chapter-list", {})
-    local ch = nil
+    local cl = state.chapter_list  -- sorted, get latest before possec, if any
 
-    -- chapters might not be sorted by time. find nearest-before/at possec
-    for n=1, #cl do
-        if possec >= cl[n].time and (not ch or cl[n].time > ch.time) then
-            ch = cl[n]
+    for n=#cl,1,-1 do
+        if possec >= cl[n].time then
+            return cl[n]
         end
     end
-    return ch
 end
 
 function render_elements(master_ass)
@@ -620,13 +621,13 @@ function render_elements(master_ass)
     -- render iterations because the title may be rendered before the slider.
     state.forced_title = nil
     local se, ae = state.slider_element, elements[state.active_element]
-    if se and (ae == se or (not ae and mouse_hit(se))) then
+    if user_opts.chapter_fmt ~= "no" and se and (ae == se or (not ae and mouse_hit(se))) then
         local dur = mp.get_property_number("duration", 0)
         if dur > 0 then
             local possec = get_slider_value(se) * dur / 100 -- of mouse pos
             local ch = get_chapter(possec)
             if ch and ch.title and ch.title ~= "" then
-                state.forced_title = "Chapter: " .. ch.title
+                state.forced_title = string.format(user_opts.chapter_fmt, ch.title)
             end
         end
     end
@@ -1806,7 +1807,9 @@ function osc_init()
     ne.eventresponder["mbtn_left_up"] =
         function ()
             mp.commandv("playlist-prev", "weak")
-            show_message(get_playlist(), 3)
+            if user_opts.playlist_osd then
+                show_message(get_playlist(), 3)
+            end
         end
     ne.eventresponder["shift+mbtn_left_up"] =
         function () show_message(get_playlist(), 3) end
@@ -1821,7 +1824,9 @@ function osc_init()
     ne.eventresponder["mbtn_left_up"] =
         function ()
             mp.commandv("playlist-next", "weak")
-            show_message(get_playlist(), 3)
+            if user_opts.playlist_osd then
+                show_message(get_playlist(), 3)
+            end
         end
     ne.eventresponder["shift+mbtn_left_up"] =
         function () show_message(get_playlist(), 3) end
@@ -1876,7 +1881,9 @@ function osc_init()
     ne.eventresponder["mbtn_left_up"] =
         function ()
             mp.commandv("add", "chapter", -1)
-            show_message(get_chapterlist(), 3)
+            if user_opts.chapters_osd then
+                show_message(get_chapterlist(), 3)
+            end
         end
     ne.eventresponder["shift+mbtn_left_up"] =
         function () show_message(get_chapterlist(), 3) end
@@ -1891,7 +1898,9 @@ function osc_init()
     ne.eventresponder["mbtn_left_up"] =
         function ()
             mp.commandv("add", "chapter", 1)
-            show_message(get_chapterlist(), 3)
+            if user_opts.chapters_osd then
+                show_message(get_chapterlist(), 3)
+            end
         end
     ne.eventresponder["shift+mbtn_left_up"] =
         function () show_message(get_chapterlist(), 3) end
@@ -2084,10 +2093,10 @@ function osc_init()
             dmx_cache = state.dmx_cache
         end
         local min = math.floor(dmx_cache / 60)
-        local sec = dmx_cache % 60
+        local sec = math.floor(dmx_cache % 60) -- don't round e.g. 59.9 to 60
         return "Cache: " .. (min > 0 and
             string.format("%sm%02.0fs", min, sec) or
-            string.format("%3.0fs", dmx_cache))
+            string.format("%3.0fs", sec))
     end
 
     -- volume
@@ -2676,7 +2685,10 @@ mp.register_event("shutdown", shutdown)
 mp.register_event("start-file", request_init)
 mp.observe_property("track-list", nil, request_init)
 mp.observe_property("playlist", nil, request_init)
-mp.observe_property("chapter-list", nil, function()
+mp.observe_property("chapter-list", "native", function(_, list)
+    list = list or {}  -- safety, shouldn't return nil
+    table.sort(list, function(a, b) return a.time < b.time end)
+    state.chapter_list = list
     update_duration_watch()
     request_init()
 end)

@@ -24,6 +24,7 @@
 #include "video/out/gpu/d3d11_helpers.h"
 #include "video/out/gpu/spirv.h"
 #include "video/out/w32_common.h"
+#include "context.h"
 #include "ra_d3d11.h"
 
 static int d3d11_validate_adapter(struct mp_log *log,
@@ -198,6 +199,9 @@ static int d3d11_color_depth(struct ra_swapchain *sw)
 static bool d3d11_start_frame(struct ra_swapchain *sw, struct ra_fbo *out_fbo)
 {
     struct priv *p = sw->priv;
+
+    if (!out_fbo)
+        return true;
 
     if (!p->backbuffer)
         return false;
@@ -489,6 +493,13 @@ static bool d3d11_init(struct ra_ctx *ctx)
     if (!vo_w32_init(ctx->vo))
         goto error;
 
+    UINT usage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_SHADER_INPUT;
+    if (ID3D11Device_GetFeatureLevel(p->device) >= D3D_FEATURE_LEVEL_11_0 &&
+        p->opts->output_format != DXGI_FORMAT_B8G8R8A8_UNORM)
+    {
+        usage |= DXGI_USAGE_UNORDERED_ACCESS;
+    }
+
     struct d3d11_swapchain_opts scopts = {
         .window = vo_w32_hwnd(ctx->vo),
         .width = ctx->vo->dwidth,
@@ -500,7 +511,7 @@ static bool d3d11_init(struct ra_ctx *ctx)
         // Add one frame for the backbuffer and one frame of "slack" to reduce
         // contention with the window manager when acquiring the backbuffer
         .length = ctx->vo->opts->swapchain_depth + 2,
-        .usage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
+        .usage = usage,
     };
     if (!mp_d3d11_create_swapchain(p->device, ctx->log, &scopts, &p->swapchain))
         goto error;
@@ -514,6 +525,18 @@ static bool d3d11_init(struct ra_ctx *ctx)
 error:
     d3d11_uninit(ctx);
     return false;
+}
+
+IDXGISwapChain *ra_d3d11_ctx_get_swapchain(struct ra_ctx *ra)
+{
+    if (ra->swapchain->fns != &d3d11_swapchain)
+        return NULL;
+
+    struct priv *p = ra->priv;
+
+    IDXGISwapChain_AddRef(p->swapchain);
+
+    return p->swapchain;
 }
 
 const struct ra_ctx_fns ra_ctx_d3d11 = {

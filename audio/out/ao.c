@@ -41,6 +41,8 @@ extern const struct ao_driver audio_out_audiounit;
 extern const struct ao_driver audio_out_coreaudio;
 extern const struct ao_driver audio_out_coreaudio_exclusive;
 extern const struct ao_driver audio_out_rsound;
+extern const struct ao_driver audio_out_pipewire;
+extern const struct ao_driver audio_out_sndio;
 extern const struct ao_driver audio_out_pulse;
 extern const struct ao_driver audio_out_jack;
 extern const struct ao_driver audio_out_openal;
@@ -88,6 +90,12 @@ static const struct ao_driver * const audio_out_drivers[] = {
 #if HAVE_SDL2_AUDIO
     &audio_out_sdl,
 #endif
+#if HAVE_PIPEWIRE
+    &audio_out_pipewire,
+#endif
+#if HAVE_SNDIO
+    &audio_out_sndio,
+#endif
     &audio_out_null,
 #if HAVE_COREAUDIO
     &audio_out_coreaudio_exclusive,
@@ -120,7 +128,6 @@ static bool get_desc(struct m_obj_desc *dst, int index)
 static const struct m_obj_list ao_obj_list = {
     .get_desc = get_desc,
     .description = "audio outputs",
-    .allow_unknown_entries = true,
     .allow_trailer = true,
     .disallow_positional_parameters = true,
     .use_global_options = true,

@@ -1532,7 +1532,7 @@ Video
     video will be either cut off, or black bars are added.
 
     This value is multiplied with the value derived from ``--video-zoom`` and
-    the normal video aspect aspect ratio. This option is disabled if the
+    the normal video aspect ratio. This option is disabled if the
     ``--no-keepaspect`` option is used.
 
 ``--video-align-x=<-1-1>``, ``--video-align-y=<-1-1>``
@@ -1677,9 +1677,7 @@ Video
     slow hardware. This works only with the following VOs:
 
         - ``gpu``: requires at least OpenGL 4.4 or Vulkan.
-
-    (In particular, this can't be made work with ``opengl-cb``, but the libmpv
-    render API has optional support.)
+        - ``libmpv``: The libmpv render API has optional support.
 
     Using video filters of any kind that write to the image data (or output
     newly allocated frames) will silently disable the DR code path.
@@ -2616,11 +2614,6 @@ Subtitles
 ``--secondary-sub-visibility``, ``--no-secondary-sub-visibility``
     Can be used to disable display of secondary subtitles, but still select and
     decode them.
-
-    .. note::
-
-        If ``--sub-visibility=no``, secondary subtitles are hidden regardless of
-        ``--secondary-sub-visibility``.
 
 ``--sub-clear-on-seek``
     (Obscure, rarely useful.) Can be used to play broken mkv files with
@@ -5013,8 +5006,9 @@ ALSA audio output options
 GPU renderer options
 -----------------------
 
-The following video options are currently all specific to ``--vo=gpu`` and
-``--vo=libmpv`` only, which are the only VOs that implement them.
+The following video options are currently all specific to ``--vo=gpu``,
+``--vo=libmpv`` and ``--vo=gpu-next``, which are the only VOs that implement
+them.
 
 ``--scale=<filter>``
     The filter function to use when upscaling video.
@@ -5266,6 +5260,15 @@ The following video options are currently all specific to ``--vo=gpu`` and
     discontinuity every other minute.
 
     Set this to ``-1`` to disable this logic.
+
+``--interpolation-preserve``
+    Preserve the previous frames' interpolated results even when renderer
+    parameters are changed - with the exception of options related to
+    cropping and video placement, which always invalidate the cache. Enabling
+    this option makes dynamic updates of renderer settings slightly smoother at
+    the cost of slightly higher latency in response to such changes. Defaults
+    to on. (Only affects ``--vo=gpu-next``, note that ``-vo=gpu`` always
+    invalidates interpolated frames)
 
 ``--opengl-pbo``
     Enable use of PBOs. On some drivers this can be faster, especially if the
@@ -5821,7 +5824,7 @@ The following video options are currently all specific to ``--vo=gpu`` and
     values will sharpen the image (but add more ringing and aliasing). Negative
     values will blur the image. If your GPU is powerful enough, consider
     alternatives like the ``ewa_lanczossharp`` scale filter, or the
-    ``--scale-blur`` option.
+    ``--scale-blur`` option. (Only for ``--vo=gpu``)
 
 ``--opengl-glfinish``
     Call ``glFinish()`` before swapping buffers (default: disabled). Slower,
@@ -6139,6 +6142,34 @@ The following video options are currently all specific to ``--vo=gpu`` and
 
     NOTE: Only implemented on macOS.
 
+``--image-lut=<file>``
+    Specifies a custom LUT file (in Adobe .cube format) to apply to the colors
+    during image decoding. The exact interpretation of the LUT depends on
+    the value of ``--image-lut-type``. (Only for ``--vo=gpu-next``)
+
+``--image-lut-type=<value>``
+    Controls the interpretation of color values fed to and from the LUT
+    specified as ``--image-lut``. Valid values are:
+
+    auto
+        Chooses the interpretation of the LUT automatically from tagged
+        metadata, and otherwise falls back to ``native``. (Default)
+    native
+        Applied to the raw image contents in its native colorspace, before
+        decoding to RGB. For example, for a HDR10 image, this would be fed
+        PQ-encoded YCbCr values in the range 0.0 - 1.0.
+    normalized
+        Applied to the normalized RGB image contents, after decoding from
+        its native color encoding, but before linearization.
+    conversion
+        Fully replaces the color decoding. A LUT of this type should ingest the
+        image's native colorspace and output normalized non-linear RGB.
+
+``--target-colorspace-hint``
+    Automatically configure the output colorspace of the display to pass
+    through the input values of the stream (e.g. for HDR passthrough), if
+    possible. Requires a supporting driver and ``--vo=gpu-next``.
+
 ``--target-prim=<value>``
     Specifies the primaries of the display. Video colors will be adapted to
     this colorspace when ICC color management is not being used. Valid values
@@ -6254,12 +6285,20 @@ The following video options are currently all specific to ``--vo=gpu`` and
         In such a configuration, we highly recommend setting ``--tone-mapping``
         to ``mobius`` or even ``clip``.
 
+``--target-lut=<file>``
+    Specifies a custom LUT file (in Adobe .cube format) to apply to the colors
+    before display on-screen. This LUT is fed values in normalized RGB, after
+    encoding into the target colorspace, so after the application of
+    ``--target-trc``. (Only for ``--vo=gpu-next``)
+
 ``--tone-mapping=<value>``
     Specifies the algorithm used for tone-mapping images onto the target
     display. This is relevant for both HDR->SDR conversion as well as gamut
     reduction (e.g. playing back BT.2020 content on a standard gamut display).
     Valid values are:
 
+    auto
+        Choose the best curve according to internal heuristics. (Default)
     clip
         Hard-clip any out-of-range values. Use this when you care about
         perfect color accuracy for in-range values at the cost of completely
@@ -6285,13 +6324,17 @@ The following video options are currently all specific to ``--vo=gpu`` and
         you should also enable ``--hdr-compute-peak`` for the best results.
     bt.2390
         Perceptual tone mapping curve (EETF) specified in ITU-R Report BT.2390.
-        This is the recommended curve to use for typical HDR-mastered content.
-        (Default)
     gamma
         Fits a logarithmic transfer between the tone curves.
     linear
         Linearly stretches the entire reference gamut to (a linear multiple of)
         the display.
+    spline
+        Perceptually linear single-pivot polynomial. (``--vo=gpu-next`` only)
+    bt.2446a
+        HDR<->SDR mapping specified in ITU-R Report BT.2446, method A. This is
+        the recommended curve for well-mastered content. (``--vo=gpu-next``
+        only)
 
 ``--tone-mapping-param=<value>``
     Set tone mapping parameters. By default, this is set to the special string
@@ -6316,6 +6359,17 @@ The following video options are currently all specific to ``--vo=gpu`` and
         Specifies the exponent of the function. Defaults to 1.8.
     linear
         Specifies the scale factor to use while stretching. Defaults to 1.0.
+    spline
+        Specifies the knee point (in PQ space). Defaults to 0.30.
+
+``--inverse-tone-mapping``
+    If set, allows inverse tone mapping (expanding SDR to HDR). Not supported
+    by all tone mapping curves. Use with caution. (``--vo=gpu-next`` only)
+
+``--tone-mapping-crosstalk=<0.0..0.30>``
+    If nonzero, apply an extra crosstalk matrix before tone mapping. Can help
+    improve the appearance of strongly saturated monochromatic highlights.
+    (Default: 0.04, only affects ``--vo=gpu-next``)
 
 ``--tone-mapping-max-boost=<1.0..10.0>``
     Upper limit for how much the tone mapping algorithm is allowed to boost
@@ -6323,7 +6377,48 @@ The following video options are currently all specific to ``--vo=gpu`` and
     allows no additional brightness boost. A value of 2.0 would allow
     over-exposing by a factor of 2, and so on. Raising this setting can help
     reveal details that would otherwise be hidden in dark scenes, but raising
-    it too high will make dark scenes appear unnaturally bright.
+    it too high will make dark scenes appear unnaturally bright. (``-vo=gpu``
+    only)
+
+``--tone-mapping-mode``
+    Controls how the tone mapping function is applied to colors.
+
+    auto
+        Choose the best mode automatically. (Default)
+    rgb
+        Tone-map per-channel (RGB). Has a tendency to severely distort colors,
+        desaturate highlights, and is generally not very recommended. However,
+        this is the mode used in many displays and TVs (especially early ones),
+        and so sometimes it's needed to reproduce the artistic intent a film
+        was mastered with.
+    max
+        Tone-map on the brightest component in the video. Has a tendency to
+        lead to weirdly oversaturated colors, and loss of dark details.
+    hybrid
+        A hybrid approach that uses linear tone-mapping for midtones and
+        per-channel tone mapping for highlights.
+    luma
+        Luminance-based method from ITU-R BT.2446a, including fixed gamut
+        reductions to account for brightness-related perceptual nonuniformity.
+        (``--vo=gpu-next`` only)
+
+``--gamut-mapping-mode``
+    Specifies the algorithm used for reducing the gamut of images for the
+    target display, after any tone mapping is done.
+
+    auto
+        Choose the best mode automatically. (Default)
+    clip
+        Hard-clip to the gamut (per-channel).
+    warn
+        Simply highlight out-of-gamut pixels.
+    desaturate
+        Chromatically desaturate out-of-gamut colors towards white.
+    darken
+        Linearly darken the entire image, then clip to the color volume. Unlike
+        ``clip``, this does not destroy detail in saturated regions, but comes
+        at the cost of sometimes significantly lowering output brightness.
+        (``--vo=gpu-next`` only)
 
 ``--hdr-compute-peak=<auto|yes|no>``
     Compute the HDR peak and frame average brightness per-frame instead of
@@ -6334,6 +6429,14 @@ The following video options are currently all specific to ``--vo=gpu`` and
     probably also perform horribly on some drivers, so enable at your own risk.
     The special value ``auto`` (default) will enable HDR peak computation
     automatically if compute shaders and SSBOs are supported.
+
+``--allow-delayed-peak-detect``
+    When using ``--hdr-compute-peak``, allow delaying the detected peak by a
+    frame when beneficial for performance. In particular, this is required to
+    avoid an unnecessary FBO indirection when no advanced rendering is required
+    otherwise. Has no effect if there already is an indirect pass, such as when
+    advanced scaling is enabled. Defaults to on. (Only affects
+    ``--vo=gpu-next``, note that ``--vo=gpu`` always delays the peak.)
 
 ``--hdr-peak-decay-rate=<1.0..1000.0>``
     The decay rate used for the HDR peak detection algorithm (default: 100.0).
@@ -6358,46 +6461,6 @@ The following video options are currently all specific to ``--vo=gpu`` and
     exceeds the low threshold, mpv will make the averaging filter more
     aggressive, up to the limit of the high threshold (at which point the
     filter becomes instant).
-
-``--tone-mapping-desaturate=<0.0..1.0>``
-    Apply desaturation for highlights (default: 0.75). The parameter controls
-    the strength of the desaturation curve. A value of 0.0 completely disables
-    it, while a value of 1.0 means that overly bright colors will tend towards
-    white. (This is not always the case, especially not for highlights that are
-    near primary colors)
-
-    Values in between apply progressively more/less aggressive desaturation.
-    This setting helps prevent unnaturally oversaturated colors for
-    super-highlights, by (smoothly) turning them into less saturated (per
-    channel tone mapped) colors instead. This makes images feel more natural,
-    at the cost of chromatic distortions for out-of-range colors. The default
-    value of 0.75 provides a good balance. Setting this to 0.0 preserves the
-    chromatic accuracy of the tone mapping process.
-
-``--tone-mapping-desaturate-exponent=<0.0..20.0>``
-    This setting controls the exponent of the desaturation curve, which
-    controls how bright a color needs to be in order to start being
-    desaturated. The default of 1.5 provides a reasonable balance.  Decreasing
-    this exponent makes the curve more aggressive.
-
-``--gamut-warning``
-    If enabled, mpv will mark all clipped/out-of-gamut pixels that exceed a
-    given threshold (currently hard-coded to 101%). The affected pixels will be
-    inverted to make them stand out. Note: This option applies after the
-    effects of all of mpv's color space transformation / tone mapping options,
-    so it's a good idea to combine this with ``--tone-mapping=clip`` and use
-    ``--target-prim`` to set the gamut to simulate. For example,
-    ``--target-prim=bt.709`` would make mpv highlight all pixels that exceed the
-    gamut of a standard gamut (sRGB) display. This option also does not work
-    well with ICC profiles, since the 3DLUTs are always generated against the
-    source color space and have chromatically-accurate clipping built in.
-
-``--gamut-clipping``
-    If enabled (default: yes), mpv will colorimetrically clip out-of-gamut
-    colors by desaturating them (preserving luma), rather than hard-clipping
-    each component individually. This should make playback of wide gamut
-    content on typical (standard gamut) monitors look much more aesthetically
-    pleasing and less blown-out.
 
 ``--use-embedded-icc-profile``
     Load the embedded ICC profile contained in media files such as PNG images.
@@ -6455,6 +6518,30 @@ The following video options are currently all specific to ``--vo=gpu`` and
     content. The default of ``no`` means to use the profile values. The special
     value ``inf`` causes the BT.1886 curve to be treated as a pure power gamma
     2.4 function.
+
+``--lut=<file>``
+    Specifies a custom LUT (in Adobe .cube format) to apply to the colors
+    as part of color conversion. The exact interpretation depends on the value
+    of ``--lut-type``. (Only for ``--vo=gpu-next``)
+
+``--lut-type=<value>``
+    Controls the interpretation of color values fed to and from the LUT
+    specified as ``--lut``. Valid values are:
+
+    auto
+        Chooses the interpretation of the LUT automatically from tagged
+        metadata, and otherwise falls back to ``native``. (Default)
+    native
+        Applied to raw image contents in its native RGB colorspace (non-linear
+        light), before conversion to the output color space.
+    normalized
+        Applied to the normalized RGB image contents, in linear light, before
+        conversion to the output color space.
+    conversion
+        Fully replaces the conversion from the image color space to the output
+        color space. If such a LUT is present, it has the highest priority, and
+        overrides any ICC profiles, as well as options related to tone mapping
+        and output colorimetry (``--target-prim``, ``--target-trc`` etc.).
 
 ``--blend-subtitles=<yes|video|no>``
     Blend subtitles directly onto upscaled video frames, before interpolation
@@ -6590,9 +6677,9 @@ Miscellaneous
     other hand, setting a too high value can reduce responsiveness with low
     FPS value.
 
-    For client API users using the render API (or the deprecated ``opengl-cb``
-    API), this option is interesting, because you can stop the render API
-    from limiting your FPS (see ``mpv_render_context_render()`` documentation).
+    This option is interesting for client API users using the render API
+    because you can stop it from limiting your FPS
+    (see ``mpv_render_context_render()`` documentation).
 
     This applies only to audio timing modes (e.g. ``--video-sync=audio``). In
     other modes (``--video-sync=display-...``), video timing relies on vsync
