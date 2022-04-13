@@ -2,8 +2,10 @@
 *.a
 *.d
 *.exe
+*.dll
 *.pyc
 .depend
+.vscode/
 
 /config.h
 /config.mak
