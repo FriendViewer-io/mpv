@@ -21,7 +21,7 @@ enum class ControlMessageType : uint8_t {
     SKIP,
     PAUSE,
     PLAY
-}
+};
 
 struct packet {
     PacketType packet_type;
@@ -41,7 +41,8 @@ struct control_packet : packet {
 
 struct asio_socket { 
     asio_socket() : skt(io_svc) {}
-    asio_socket(asio_socket&& rhs) : io_svc(std::move(rhs.io_svc)), skt(std::move(rhs.skt)) {}
+    asio_socket(asio_socket&&) = delete;
+    asio_socket(asio_socket const&) = delete;
 
     asio::io_service io_svc;
     asio::ip::tcp::socket skt;
@@ -65,15 +66,15 @@ void client_network_thread(client_data* data) {
     std::string recv_buffer;
     recv_buffer.resize(1500);
     asio::error_code ec;
-    packet pkt = {0};
+    packet pkt = {PacketType::CONTROL, 0};
     while (true) {
         size_t recv_size = data->host.receive(asio::buffer(recv_buffer), 0, ec);
         if (recv_size == 0 || ec.value() != 0) {
             break;
         }
-        char* data = recv_buffer.data();
+        char const* data = recv_buffer.data();
         if (pkt.packet_type == PacketType::UNKNOWN) {
-            packet* recv_pkt = (packet*) data;
+            auto recv_pkt = reinterpret_cast<packet const*>(data);
             pkt.packet_type = recv_pkt->packet_type;
             pkt.len = recv_pkt->len;
             data += sizeof(packet);
@@ -85,13 +86,13 @@ void host_network_thread(host_data* data) {
     std::string recv_buffer;
     recv_buffer.resize(1500);
     while (true) {
-        asio::error_code ec;
-        size_t recv_size = client_sock.receive(asio::buffer(recv_buffer, 1500), 0, ec);
-        if (recv_size == 0 || ec.value() != 0) {
-            break;
+        for (auto&& client : data->clients) {
+            asio::error_code ec;
+            size_t recv_size = client.skt.receive(asio::buffer(recv_buffer, 1500), 0, ec);
+            if (recv_size == 0 || ec.value() != 0) {
+                break;
+            }
         }
-        
-
     }
 }
 
@@ -103,10 +104,11 @@ void host_acceptor_thread(host_data* data) {
         acceptor.set_option(reuse);
         acceptor.accept(new_conn.skt);
         {
-            std::lock_guard lck(data->data_m);
+            // Lock our host_data structure and add a new non-blocking connection to the client
+            std::lock_guard<std::mutex> lck(data->data_m);
             asio::error_code ec;
             new_conn.skt.native_non_blocking(true, ec);
-            host_data->clients.emplace_back(std::move(new_conn));
+            data->clients.emplace_back(std::move(new_conn));
         }
     }
 }
@@ -137,6 +139,7 @@ void open_stream(struct fs_data *s, bool is_host, char const* url) {
         new_host_data->acceptor_thread = new std::thread(host_acceptor_thread, s);
         new_host_data->network_thread = new std::thread(host_network_thread, s);
     } else {
+        // TODO: Decode URL to determine host
         client_data* new_client_data = new client_data;
         new_client_data->buffer_handle = std::fstream(".streambuf", std::ios::trunc | std::ios::binary | std::ios::in | std::ios::out);
         s->client_private = new_client_data;
@@ -144,3 +147,4 @@ void open_stream(struct fs_data *s, bool is_host, char const* url) {
     }
 }
 
+}
