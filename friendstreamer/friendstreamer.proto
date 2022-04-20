@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+message NetworkPacket {
+	oneof Payload {
+		HostNetwork host_network = 1;
+		ClientNetwork client_network = 2;
+		Handshake hs = 3;
+	}
+}
+
+message Handshake {
+	oneof Payload {
+		HSPhase1Chunk phase1 = 1;
+		HSPhase2 phase2 = 2;
+		HSPhase3 phase3 = 3;
+	}
+}
+
+message HSPhase1Chunk {
+	FileData file_chunk = 1;
+}
+
+message HSPhase2 {
+	ParseStatus status = 1;
+	enum ParseStatus {
+		kMore = 0;
+		kGood = 1;
+		kFail = 2;
+	}
+}
+
+message HSPhase3 {
+	SeekMessage start_point = 1;
+}
+
+message HostNetwork {
+	oneof Payload {
+		HeartbeatMessage hb = 1;
+		FileData data = 2;
+		ControlMessage control = 3;
+	}
+}
+
+message HeartbeatMessage {
+	uint64 timestamp = 1;
+}
+
+message FileData {
+	uint64 file_offset = 1;
+	bytes raw_data = 2;
+}
+
+message ControlMessage {
+	oneof Payload {
+		PauseMessage pause = 1;
+		SeekMessage seek = 2;
+		DieMessage die = 3;
+	}
+}
+
+message PauseMessage {
+	bool pause = 1;
+	bool soft_pause = 2;
+	uint64 sync_timestamp = 3;
+}
+
+message SeekMessage {
+	uint64 sync_timestamp = 1;
+}
+
+message DieMessage {}
+
+message ClientNetwork {
+	oneof Payload {
+		DataRequest data_req = 1;
+		ReadyToPlay rtp = 2;
+		BufferStop buffer_stop = 3;
+		ResyncStop resync_stop = 4;
+	}
+}
+
+message DataRequest {
+	uint64 file_off = 1;
+	uint64 length = 2;
+}
+
+message ReadyToPlay {}
+
+message BufferStop {
+	uint64 stop_timestamp = 1;
+}
+
+message ResyncStop {}
