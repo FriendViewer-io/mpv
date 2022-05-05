@@ -396,3 +396,10 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+
+# Linux specifics
+bin/
+build/
+*.d
+*.o
