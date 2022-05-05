@@ -401,5 +401,11 @@ FodyWeavers.xsd
 # Linux specifics
 bin/
 build/
+proto-generated/
 *.d
 *.o
+*.pb.cc
+*.pb.hh
+
+.cache/
+compile_commands.json
