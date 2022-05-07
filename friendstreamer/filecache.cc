@@ -45,7 +45,7 @@ bool FileCacheTracker::query_interval(Interval iv) {
     return false;
 }
 
-uint64_t FileCacheTracker::find_filled_after (uint64_t start_point) {
+uint64_t FileCacheTracker::find_filled_after(uint64_t start_point) {
     for (auto it = coverage.begin(); it != coverage.end(); it++) {
         if (it->left > start_point) {
             return it->left;
@@ -68,37 +68,39 @@ std::optional<Interval> FileCacheTracker::find_unfilled_after(uint64_t start_poi
             if (it->right == size) {
                 return std::nullopt;
             } else {
-                return Interval (it->right, find_filled_after(it->right));
+                return Interval(it->right, find_filled_after(it->right));
             }
         } 
     }
     return Interval(start_point, find_filled_after(start_point));
 }
 
-FileCache::FileCache(){
-    tracker = nullptr;
-}
+FileCache::FileCache() : tracker(nullptr) {}
 
-void FileCache::create_cache (std::string filename, size_t file_size) {
-    FileCacheTracker tracker = FileCacheTracker(file_size);
+bool FileCache::create_cache(std::string filename, size_t file_size) {
     file_io.open(filename);
+    if (file_io.is_open()) {
+        tracker = std::make_unique<FileCacheTracker>(file_size);
+        return true;
+    }
+    return false;
 }
 
-void FileCache::write_data (void const* data, size_t len, size_t offset) {
+void FileCache::write_data(void const* data, size_t len, size_t offset) {
     std::lock_guard<std::mutex> guard(file_lock);
     file_io.seekg(offset);
     file_io.write(reinterpret_cast<char const*>(data), len);
 }
 
-bool FileCache::has_data_at (Interval file_interval) {
+bool FileCache::has_data_at(Interval file_interval) {
     std::lock_guard<std::mutex> guard(file_lock);
     return tracker->query_interval(file_interval);
 }
 
-std::optional<Interval> FileCache::get_first_missing_interval (Interval iv) {
+std::optional<Interval> FileCache::get_first_missing_interval(Interval iv) {
    std::lock_guard<std::mutex> guard(file_lock);
    std::optional<Interval> first_missing_interval = tracker->find_unfilled_after(iv.left);
-   if (first_missing_interval  == std::nullopt) {
+   if (first_missing_interval == std::nullopt) {
        return std::nullopt;
    } else if (first_missing_interval->left >= iv.right) {
        return std::nullopt;
@@ -109,11 +111,13 @@ std::optional<Interval> FileCache::get_first_missing_interval (Interval iv) {
    }
 }
 
-std::vector<uint8_t> FileCache::read_data (Interval iv) {
-    std::lock_guard<std::mutex> guard(file_lock);
+std::vector<uint8_t> FileCache::read_data(Interval iv) {
     std::vector<uint8_t> buffer;
-    buffer.resize(iv.right - iv.left);
+    const size_t buf_size = iv.right - iv.left;
+    buffer.resize(buf_size);
 
+    std::lock_guard<std::mutex> guard(file_lock);
     file_io.seekp(iv.left);
-    file_io.read(reinterpret_cast<char*>(buffer.data()), iv.right-iv.left);
+    file_io.read(reinterpret_cast<char*>(buffer.data()), buf_size);
+    return buffer;
 }
