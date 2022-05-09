@@ -44,6 +44,8 @@ public:
     bool query_interval(Interval iv);
     std::optional<Interval> find_unfilled_after(uint64_t start_point);
     uint64_t find_filled_after (uint64_t start_point);
+    size_t get_size();
+    void clear_list();
 };
 
 class FileCache {
@@ -58,4 +60,6 @@ class FileCache {
     bool has_data_at (Interval file_interval);
     std::optional<Interval> FileCache::get_first_missing_interval (Interval iv);
     std::vector<uint8_t> read_data (Interval iv);
+    size_t get_size();
+    void clear_cache();
 };

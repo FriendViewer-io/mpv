@@ -12,7 +12,6 @@ FileCacheTracker::FileCacheTracker(size_t file_size) {
 
 void FileCacheTracker::add_interval(Interval iv) {    
     iv.right = std::min(size, iv.right);
-
     for (auto it = coverage.begin(); it != coverage.end(); it++) {
         if (it->overlaps(iv)) {
             it->accrue(iv);
@@ -52,6 +51,14 @@ uint64_t FileCacheTracker::find_filled_after (uint64_t start_point) {
         }
     }
     return size;
+}
+
+size_t FileCacheTracker::get_size() {
+    return size;
+}
+
+void FileCacheTracker::clear_list() {
+    coverage.clear();
 }
 
 std::optional<Interval> FileCacheTracker::find_unfilled_after(uint64_t start_point) {
@@ -116,4 +123,13 @@ std::vector<uint8_t> FileCache::read_data (Interval iv) {
 
     file_io.seekp(iv.left);
     file_io.read(reinterpret_cast<char*>(buffer.data()), iv.right-iv.left);
+}
+
+size_t FileCache::get_size() {
+    return tracker->get_size();
+}
+
+void FileCache::clear_cache() {
+    tracker->clear_list();
+    std::remove(".streambuf");
 }
