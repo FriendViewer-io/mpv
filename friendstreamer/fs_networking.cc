@@ -7,7 +7,10 @@ using namespace asio::ip;
 
 AsioSocket::AsioSocket(std::shared_ptr<asio::io_service> io_svc) 
     : io_svc(std::move(io_svc)), skt(*this->io_svc.get())
-{}
+{
+    pending_read.resize(sizeof(size_t));
+    read_mode = ReadMode::kReadLength;
+}
 
 void AsioSocket::send_msg(void const* data, size_t length) {
     asio::error_code ec;
@@ -15,22 +18,33 @@ void AsioSocket::send_msg(void const* data, size_t length) {
     asio::write(skt, asio::buffer(data, length), ec);
 }
 
-std::optional<std::vector<uint8_t>> AsioSocket::recv_msg() {
-    if (read_mode == ReadMode::kReadLength) {
-        if (pending_read.empty()) {
-            pending_read.resize(sizeof(size_t));
-        }
-        
-        asio::read(skt, asio::buffer(&length, sizeof(length)), ec);
-    } else {
-        
-    }
-    size_t length;
-    std::vector<uint8_t> recv_buf;
+void AsioSocket::partial_recv() {
     asio::error_code ec;
-    recv_buf.resize(length);
-    asio::read(skt, asio::buffer(recv_buf, length), ec);
-    return recv_buf;
+    current_read_amount += asio::read(skt, asio::buffer(pending_read.data() + current_read_amount, pending_read.size()-current_read_amount), ec);
+}
+
+std::optional<std::vector<uint8_t>> AsioSocket::recv_msg() {
+    partial_recv();
+    if (read_mode == ReadMode::kReadLength) {
+        if (current_read_amount == pending_read.size()) {
+            size_t len = *reinterpret_cast<size_t*>(pending_read.data());
+            pending_read.resize(len);
+            current_read_amount = 0;
+            read_mode = ReadMode::kReadData;
+        } else {
+            return std::nullopt;
+        }
+
+    } else {
+        if (current_read_amount == pending_read.size()) {
+            std::vector<uint8_t> ret = std::move(pending_read);
+            pending_read.resize(sizeof(size_t));
+            read_mode = ReadMode::kReadLength;
+            return ret;
+        } else {
+            return std::nullopt;
+        }
+    }
 }
 
 AsioSocket::~AsioSocket() {
@@ -50,7 +64,7 @@ AsioSocket await_connection(std::shared_ptr<asio::io_service> io_svc) {
 std::optional<NetworkPacket> recv_packet(AsioSocket& skt) {
     auto pkt_raw = skt.recv_msg();
     NetworkPacket pkt;
-    pkt.ParseFromArray(pkt_raw.data(), pkt_raw.size());
+    pkt.ParseFromArray(pkt_raw->data(),pkt_raw->size());
     return pkt;
 }
 

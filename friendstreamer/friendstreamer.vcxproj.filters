@@ -18,9 +18,39 @@
     <ClCompile Include="friendstreamer.cc">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="filecache.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="friendstreamer_client.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="friendstreamer_host.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="fs_networking.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="proto-generated\friendstreamer.pb.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="friendstreamer.hh">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="filecache.hh">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="friendstreamer_client.hh">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="friendstreamer_host.hh">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="fs_networking.hh">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="proto-generated\friendstreamer.pb.h">
       <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>

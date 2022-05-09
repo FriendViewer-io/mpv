@@ -11,7 +11,7 @@
 using tcp_socket = asio::ip::tcp::socket;
 using tcp_acceptor = asio::ip::tcp::acceptor;
 
-constexpr static asio::ip::port_type kPortNum = 40040;
+constexpr static uint16_t kPortNum = 40040;
 
 struct AsioSocket {
     AsioSocket(std::shared_ptr<asio::io_service> io_svc);
@@ -34,7 +34,11 @@ private:
         kReadLength, kReadData
     };
     std::vector<uint8_t> pending_read;
+    size_t current_read_amount;
+    size_t data_read_amount;
     ReadMode read_mode;
+
+    void partial_recv();
 };
 
 AsioSocket await_connection(std::shared_ptr<asio::io_service> io_svc);

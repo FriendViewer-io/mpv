@@ -10,7 +10,7 @@
 #include <asio/io_service.hpp>
 #include <asio/ip/tcp.hpp>
 
-constexpr asio::ip::port_type kPortNum = 40040;
+constexpr uint16_t kPortNum = 40040;
 
 struct asio_socket { 
     asio_socket(std::shared_ptr<asio::io_service> io_svc) : io_svc(io_svc), skt(*this->io_svc.get()) {}
