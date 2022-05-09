@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-struct fs_data {
+typedef struct fs_data {
     bool is_host;
 
     // host data
@@ -14,7 +14,7 @@ struct fs_data {
 
     // client data
     void* client_private;
-};
+} fs_data;
 /*
 struct priv {
     int fd;
