@@ -17,4 +17,5 @@ struct HostData {
     std::shared_ptr<asio::io_service> io_svc;
 };
 
+
 HostData* create_host(char const* url);

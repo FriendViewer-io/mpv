@@ -41,3 +41,6 @@
 /Makefile
 
 /subprojects
+
+.cache/
+compile_commands.json

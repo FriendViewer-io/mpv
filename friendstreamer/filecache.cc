@@ -94,18 +94,15 @@ bool FileCache::create_cache(std::string filename, size_t file_size) {
 }
 
 void FileCache::write_data(void const* data, size_t len, size_t offset) {
-    std::lock_guard<std::mutex> guard(file_lock);
     file_io.seekg(offset);
     file_io.write(reinterpret_cast<char const*>(data), len);
 }
 
 bool FileCache::has_data_at(Interval file_interval) {
-    std::lock_guard<std::mutex> guard(file_lock);
     return tracker->query_interval(file_interval);
 }
 
 std::optional<Interval> FileCache::get_first_missing_interval(Interval iv) {
-   std::lock_guard<std::mutex> guard(file_lock);
    std::optional<Interval> first_missing_interval = tracker->find_unfilled_after(iv.left);
    if (first_missing_interval == std::nullopt) {
        return std::nullopt;
@@ -118,12 +115,33 @@ std::optional<Interval> FileCache::get_first_missing_interval(Interval iv) {
    }
 }
 
+std::vector<Interval> FileCache::get_all_missing_intervals(Interval iv) {
+    // Clamp interval to filesize
+    iv.right = std::min(iv.right, get_size());
+    uint64_t search_from = iv.left;
+    std::vector<Interval> missing_intervals;
+    for (;;) {
+        std::optional<Interval> missing_interval = tracker->find_unfilled_after(search_from);
+        if (missing_interval == std::nullopt) {
+            break;
+        } else if (missing_interval->left >= iv.right) {
+            break;
+        } else if (missing_interval->right > iv.right) {
+            missing_intervals.emplace_back(missing_interval->left, iv.right);
+            break;
+        } else {
+            missing_intervals.emplace_back(*missing_interval);
+            search_from = missing_interval->right;
+        }
+    }
+    return missing_intervals;
+}
+
 std::vector<uint8_t> FileCache::read_data(Interval iv) {
     std::vector<uint8_t> buffer;
     const size_t buf_size = iv.right - iv.left;
     buffer.resize(buf_size);
 
-    std::lock_guard<std::mutex> guard(file_lock);
     file_io.seekp(iv.left);
     file_io.read(reinterpret_cast<char*>(buffer.data()), buf_size);
     return buffer;
@@ -136,5 +154,5 @@ size_t FileCache::get_size() {
 
 void FileCache::clear_cache() {
     tracker->clear_list();
-    std::remove(".streambuf");
+    std::remove(kStreambufName);
 }

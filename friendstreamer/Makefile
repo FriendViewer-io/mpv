@@ -19,7 +19,7 @@ generate-proto: directories $(PROTO_GENERATED)
 directories: bin build proto-generated proto-build
 .PHONY: directories
 
-friendstreamer: bin/friendstreamer
+friendstreamer: bin/libfriendstreamer.so
 .PHONY: friendstreamer
 
 clean:
@@ -41,7 +41,7 @@ proto-generated:
 proto-build:
 	mkdir -p proto-build
 
-bin/friendstreamer: $(INTERMEDIATES) $(PROTO_INTERMEDIATES)
+bin/libfriendstreamer.so: $(INTERMEDIATES) $(PROTO_INTERMEDIATES)
 	$(CXX) $(CXX_LDFLAGS) -o $@ $^
 
 build/%.o: %.cc

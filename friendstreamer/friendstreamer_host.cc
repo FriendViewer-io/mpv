@@ -26,7 +26,8 @@ void host_network(HostData* data) {
 }
 
 HostData* create_host(char const* url) {
-    auto file_handle = std::ifstream(url, std::ios::binary);
+    char const* path = url + sizeof("fshost://") - 1;
+    auto file_handle = std::ifstream(path, std::ios::binary);
     if (!file_handle.is_open()) {
         return nullptr;
     }

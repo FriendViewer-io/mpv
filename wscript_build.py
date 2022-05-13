@@ -84,7 +84,8 @@ def build(ctx):
         target = "generated/sub/osd_font.otf.inc",
     )
 
-    ctx.read_shlib('wafdsotest', paths=['./friendstreamer'])
+    ctx.read_shlib('friendstreamer', paths=['./friendstreamer/bin'])
+    ctx.read_shlib('protobuf')
 
     lua_files = ["defaults.lua", "assdraw.lua", "options.lua", "osc.lua",
                  "ytdl_hook.lua", "stats.lua", "console.lua",
@@ -373,6 +374,7 @@ def build(ctx):
         ( "stream/stream_libarchive.c",          "libarchive" ),
         ( "stream/stream_memory.c" ),
         ( "stream/stream_mf.c" ),
+        ( "stream/stream_network.c" ),
         ( "stream/stream_null.c" ),
 
         ## Subtitles
@@ -617,7 +619,7 @@ def build(ctx):
         ctx(
             target       = "mpv",
             source       = main_fn_c,
-            use          = ctx.dependencies_use() + ['objects', 'wafdsotest'],
+            use          = ctx.dependencies_use() + ['objects', 'friendstreamer', 'protobuf'],
             add_objects  = additional_objects,
             includes     = _all_includes(ctx),
             features     = "c cprogram" + (" syms" if syms else ""),

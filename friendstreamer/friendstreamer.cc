@@ -1,5 +1,11 @@
 #include "friendstreamer.hh"
+#include "friendstreamer_internal.hh"
 
+#include "friendstreamer_client.hh"
+#include "friendstreamer_host.hh"
+
+#include <atomic>
+#include <condition_variable>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -10,125 +16,173 @@
 #include <asio/io_service.hpp>
 #include <asio/ip/tcp.hpp>
 
-constexpr uint16_t kPortNum = 40040;
-
-struct asio_socket { 
-    asio_socket(std::shared_ptr<asio::io_service> io_svc) : io_svc(io_svc), skt(*this->io_svc.get()) {}
-    asio_socket(asio_socket&& rhs) : io_svc(std::move(rhs.io_svc)), skt(std::move(rhs.skt)) {}
-    asio_socket(asio_socket const&) = delete;
-
-    asio_socket& operator=(asio_socket&& rhs) {
-        io_svc = std::move(rhs.io_svc);
-        skt = std::move(rhs.skt);
-        return *this;
-    }
-    asio_socket& operator=(asio_socket const&) = delete;
-
-    ~asio_socket() {
-        skt.close();
-    }
-
-    std::shared_ptr<asio::io_service> io_svc;
-    asio::ip::tcp::socket skt;
+static bool s_demux_ready = false;
+static std::condition_variable s_client_demux_cv;
+static std::mutex s_client_demux_m;
+static bool s_client_demux_wake = false;
+static bool s_did_initial_seek = false;
+static std::atomic<bool> s_is_ready_and_client = false;
+static void* mpctx_ptr = nullptr;
+static void(*wakeup_playloop_cb)(void*) = nullptr;
+static std::mutex s_client_player_state_m;
+static player_state s_client_player_state = {
+    .has_ts_update = false,
+    .expected_ts = 0,
+    .has_pause_update = false,
+    .paused = false,
 };
 
-struct host_data {
-    std::vector<asio_socket> clients;
-    std::unique_ptr<std::thread> acceptor_thread;
-    std::unique_ptr<std::thread> network_thread;
-    std::ifstream file_handle;
-    std::mutex data_m;
+
+static std::atomic<bool> s_is_ready_and_host = false;
+static std::mutex s_host_player_state_m;
+static player_state s_host_player_state = {
+    .has_ts_update = false,
+    .expected_ts = 0,
+    .has_pause_update = false,
+    .paused = false,
 };
-
-struct client_data {
-    std::unique_ptr<asio::ip::tcp::socket> host;
-    std::unique_ptr<std::thread> network_thread;
-    std::fstream buffer_handle;
-};
-
-void client_network_thread(client_data* data) {
-    std::string recv_buffer;
-    recv_buffer.resize(1500);
-    asio::error_code ec;
-    while (true) {
-        size_t recv_size = data->host->receive(asio::buffer(recv_buffer), 0, ec);
-        if (recv_size == 0 || ec.value() != 0) {
-            break;
-        }
-        char const* data = recv_buffer.data();
-        // if (pkt.packet_type == PacketType::UNKNOWN) {
-        //     auto recv_pkt = reinterpret_cast<packet const*>(data);
-        //     pkt.packet_type = recv_pkt->packet_type;
-        //     pkt.len = recv_pkt->len;
-        //     data += sizeof(packet);
-        // }
-    }
-}
-
-void host_network_thread(host_data* data) {
-    std::string recv_buffer;
-    recv_buffer.resize(1500);
-    while (true) {
-        for (auto&& client : data->clients) {
-            asio::error_code ec;
-            size_t recv_size = client.skt.receive(asio::buffer(recv_buffer, 1500), 0, ec);
-            if (recv_size == 0 || ec.value() != 0) {
-                break;
-            }
-        }
-    }
-}
-
-void host_acceptor_thread(host_data* data) {
-    auto io_svc = std::make_shared<asio::io_service>();
-    while (true) {
-        asio_socket new_conn(io_svc);
-        asio::ip::tcp::acceptor acceptor(*io_svc, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), kPortNum));
-        asio::socket_base::reuse_address reuse(true);
-        acceptor.set_option(reuse);
-        acceptor.accept(new_conn.skt);
-        {
-            // Lock our host_data structure and add a new non-blocking connection to the client
-            std::lock_guard<std::mutex> lck(data->data_m);
-            asio::error_code ec;
-            new_conn.skt.native_non_blocking(true, ec);
-            data->clients.emplace_back(std::move(new_conn));
-        }
-    }
-}
+static std::atomic<double> s_active_host_ts;
 
 extern "C" {
 int fs_fill_buffer(struct fs_data *s, void *buffer, int max_len) {
-    return 0;
+    if (s->is_host) {
+        return 0;
+    }
+    return fs_fill_buffer_client(*reinterpret_cast<ClientData*>(s->private_data), buffer, max_len); 
 }
 
 int fs_seek(struct fs_data *s, int64_t pos) {
-    return 0;
+    if (s->is_host) {
+        return 0;
+    }
+    return fs_seek_client(*reinterpret_cast<ClientData*>(s->private_data), pos);
 }
 
 int64_t fs_get_size(struct fs_data *s) {
-    return 0;
+    if (s->is_host) {
+        return 0;
+    }
+    return fs_get_size_client(*reinterpret_cast<ClientData*>(s->private_data));
 }
 
 void fs_close(struct fs_data *s) {
-    return;
+    if (s->is_host) {
+        return;
+    }
+    fs_close_client(*reinterpret_cast<ClientData*>(s->private_data));
 }
 
 void open_stream(struct fs_data *s, bool is_host, char const* url) {
     s->is_host = is_host;
     if (is_host) {
-        host_data* new_host_data = new host_data;
-        new_host_data->file_handle = std::ifstream(url);
-        s->host_private = new_host_data;
-        new_host_data->acceptor_thread = std::make_unique<std::thread>(host_acceptor_thread, new_host_data);
-        new_host_data->network_thread = std::make_unique<std::thread>(host_network_thread, new_host_data);
+        s->private_data = create_host(url);
+        set_is_host();
     } else {
-        // TODO: Decode URL to determine host
-        client_data* new_client_data = new client_data;
-        new_client_data->buffer_handle = std::fstream(".streambuf", std::ios::trunc | std::ios::binary | std::ios::in | std::ios::out);
-        s->client_private = new_client_data;
-        new_client_data->network_thread = std::make_unique<std::thread>(client_network_thread, new_client_data);
+        s->private_data = create_client(url);
+        set_is_client();
     }
 }
 
+void demux_unready() {
+    std::lock_guard guard(s_client_demux_m);
+    s_demux_ready = false;
+}
+
+void demux_ready() {
+    std::lock_guard guard(s_client_demux_m);
+    s_demux_ready = true;
+    printf("Demux ready!\n");
+}
+
+void notify_demux_status() {
+    {
+        std::lock_guard guard(s_client_demux_m);
+        s_client_demux_wake = true;
+        printf("Notified FS for demux state!\n");
+    }
+    s_client_demux_cv.notify_one();
+}
+
+void wait_for_initial_seek() {
+    std::unique_lock lock(s_client_demux_m);
+    s_client_demux_cv.wait(lock, [] { return s_did_initial_seek; });
+}
+
+void register_playloop_wakeup_cb(void(*callback)(void*), void* context) {
+    wakeup_playloop_cb = callback;
+    mpctx_ptr = context;
+}
+
+bool pop_player_state(player_state* ps_out) {
+    std::lock_guard guard(s_client_player_state_m);
+    if (!s_client_player_state.has_pause_update && !s_client_player_state.has_ts_update) {
+        return false;
+    }
+    *ps_out = s_client_player_state;
+    s_client_player_state.has_ts_update = s_client_player_state.has_pause_update = false;
+    return true;
+}
+
+bool is_fs_client() {
+    return s_is_ready_and_client.load();
+}
+
+bool is_fs_host() {
+    return s_is_ready_and_host.load();
+}
+
+void on_host_seek(double demux_pts) {
+    std::lock_guard guard(s_host_player_state_m);
+    s_host_player_state.has_ts_update = true;
+    s_host_player_state.expected_ts =  demux_pts;
+}
+
+void on_host_pause(bool paused) {
+    std::lock_guard guard(s_host_player_state_m);
+    s_host_player_state.has_pause_update = true;
+    s_host_player_state.paused = paused;
+}
+}
+
+bool demuxer_good() {
+    std::lock_guard guard(s_client_demux_m);
+    return s_demux_ready;
+}
+
+void block_for_demuxer() {
+    std::unique_lock block(s_client_demux_m);
+    s_client_demux_cv.wait(block, [] { return s_client_demux_wake; });
+    s_client_demux_wake = false;
+}
+
+void wakeup_playloop() {
+    if (wakeup_playloop_cb != nullptr) {
+        wakeup_playloop_cb(mpctx_ptr);
+    }
+}
+
+void set_is_client() {
+    s_is_ready_and_client.store(true);
+}
+
+void set_is_host() {
+    s_is_ready_and_host.store(true);
+}
+
+void set_player_state_pause(bool paused) {
+    std::lock_guard guard(s_client_player_state_m);
+    s_client_player_state.has_pause_update = true;
+    s_client_player_state.paused = paused;
+}
+
+void set_player_state_ts(double ts) {
+    std::lock_guard guard(s_client_player_state_m);
+    s_client_player_state.has_ts_update = true;
+    s_client_player_state.expected_ts = ts;
+}
+
+void notify_initial_seek() {
+    std::lock_guard guard(s_client_demux_m);
+    s_did_initial_seek = true;
+    s_client_demux_cv.notify_one();
 }

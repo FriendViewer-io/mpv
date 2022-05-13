@@ -35,7 +35,8 @@ std::optional<std::vector<uint8_t>> AsioSocket::recv_msg() {
             return std::nullopt;
         }
 
-    } else {
+    }
+    if (read_mode == ReadMode::kReadData) {
         if (current_read_amount == pending_read.size()) {
             std::vector<uint8_t> ret = std::move(pending_read);
             pending_read.resize(sizeof(size_t));
@@ -45,6 +46,7 @@ std::optional<std::vector<uint8_t>> AsioSocket::recv_msg() {
             return std::nullopt;
         }
     }
+    return std::nullopt;
 }
 
 AsioSocket::~AsioSocket() {
@@ -52,12 +54,21 @@ AsioSocket::~AsioSocket() {
 }
 
 AsioSocket await_connection(std::shared_ptr<asio::io_service> io_svc) {
-    AsioSocket new_conn(io_svc);
+    auto new_conn = AsioSocket(io_svc);
     auto acceptor = tcp::acceptor(*io_svc, tcp::endpoint(tcp::v4(), kPortNum));
     asio::socket_base::reuse_address reuse(true);
     acceptor.set_option(reuse);
     acceptor.accept(new_conn.skt);
     acceptor.close();
+    return new_conn;
+}
+
+AsioSocket connect_to(std::shared_ptr<asio::io_service> io_svc, char const* url) {
+    asio::error_code ec;
+    auto new_conn = AsioSocket(io_svc);
+    char const* ip = url + sizeof("fsclient://") - 1;
+    auto endpoint = tcp::endpoint(address::from_string(ip), kPortNum);
+    new_conn.skt.connect(endpoint, ec);
     return new_conn;
 }
 

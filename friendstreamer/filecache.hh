@@ -32,6 +32,10 @@ struct Interval {
         left = std::min(left, iv.left);
         right = std::max(right, iv.right);
     } 
+
+    bool operator==(Interval const& rhs) const {
+        return left == rhs.left && right == rhs.right;
+    }
 };
 
 class FileCacheTracker {
@@ -49,11 +53,12 @@ public:
     void clear_list();
 };
 
+constexpr static const char kStreambufName[] = ".streambuf";
+
 class FileCache {
 private:
     std::unique_ptr<FileCacheTracker> tracker;
     std::fstream file_io;
-    std::mutex file_lock;
 
 public:
     FileCache();
@@ -61,6 +66,7 @@ public:
     void write_data(void const* data, size_t len, size_t offset);
     bool has_data_at(Interval file_interval);
     std::optional<Interval> get_first_missing_interval(Interval iv);
+    std::vector<Interval> get_all_missing_intervals(Interval iv);
     std::vector<uint8_t> read_data(Interval iv);
     size_t get_size();
     void clear_cache();

@@ -58,6 +58,8 @@
 #endif
 #endif
 
+#include "friendstreamer/friendstreamer.hh"
+
 struct priv {
     int fd;
     bool close;
@@ -66,6 +68,9 @@ struct priv {
     bool appending;
     int64_t orig_size;
     struct mp_cancel *cancel;
+
+    bool is_hosting;
+    void* host_data;
 };
 
 // Total timeout = RETRY_TIMEOUT * MAX_RETRIES
@@ -251,6 +256,8 @@ static int open_f(stream_t *stream, const struct stream_open_args *args)
     struct priv *p = talloc_ptrtype(stream, p);
     *p = (struct priv) {
         .fd = -1,
+        .is_hosting = false,
+        .host_data = NULL,
     };
     stream->priv = p;
     stream->is_local_file = true;
@@ -269,6 +276,7 @@ static int open_f(stream_t *stream, const struct stream_open_args *args)
     }
 
     bool is_fdclose = strncmp(url, "fdclose://", 10) == 0;
+    p->is_hosting = strncmp(url, "fshost://", 9) == 0;
     if (strncmp(url, "fd://", 5) == 0 || is_fdclose) {
         char *begin = strstr(stream->url, "://") + 3, *end = NULL;
         p->fd = strtol(begin, &end, 0);
@@ -356,13 +364,18 @@ static int open_f(stream_t *stream, const struct stream_open_args *args)
     if (stream->cancel)
         mp_cancel_set_parent(p->cancel, stream->cancel);
 
+    if (p->is_hosting) {
+        fs_data *host_data = talloc_ptrtype(p, host_data);
+        p->host_data = host_data;
+        open_stream(host_data, true, url);
+    }
     return STREAM_OK;
 }
 
 const stream_info_t stream_info_file = {
     .name = "file",
     .open2 = open_f,
-    .protocols = (const char*const[]){ "file", "", "appending", NULL },
+    .protocols = (const char*const[]){ "file", "", "appending", "fshost", NULL },
     .can_write = true,
     .local_fs = true,
     .stream_origin = STREAM_ORIGIN_FS,

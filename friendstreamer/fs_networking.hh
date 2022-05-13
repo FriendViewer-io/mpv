@@ -42,5 +42,6 @@ private:
 };
 
 AsioSocket await_connection(std::shared_ptr<asio::io_service> io_svc);
+AsioSocket connect_to(std::shared_ptr<asio::io_service> io_svc, char const* url);
 std::optional<NetworkPacket> recv_packet(AsioSocket& skt);
 void send_packet(AsioSocket& skt, NetworkPacket const& pkt);

@@ -49,7 +49,8 @@
 #include "sub/dec_sub.h"
 #include "sub/osd.h"
 #include "video/out/vo.h"
-#include "friendstreamer/test.hh"
+
+#include "friendstreamer/friendstreamer.hh"
 
 // Wait until mp_wakeup_core() is called, since the last time
 // mp_wait_events() was called.
@@ -160,6 +161,9 @@ void set_pause_state(struct MPContext *mpctx, bool user_pause)
 
     opts->pause = user_pause;
 
+    if (is_fs_host()) {
+        on_host_pause(user_pause);
+    }
     bool internal_paused = get_internal_paused(mpctx);
     if (internal_paused != mpctx->paused) {
         mpctx->paused = internal_paused;
@@ -344,6 +348,9 @@ static void mp_seek(MPContext *mpctx, struct seek_params seek)
 
     demux_flags |= SEEK_BLOCK;
 
+    if (is_fs_host()) {
+        on_host_seek(demux_pts);
+    }
     if (!demux_seek(mpctx->demuxer, demux_pts, demux_flags)) {
         if (!mpctx->demuxer->seekable) {
             MP_ERR(mpctx, "Cannot seek in this stream.\n");
@@ -1188,9 +1195,33 @@ static void handle_eof(struct MPContext *mpctx)
     }
 }
 
+void update_player_state(struct MPContext *mpctx) {
+    if (!is_fs_client()) {
+        return;
+    }
+
+    player_state ps;
+    if (!pop_player_state(&ps)) {
+        return;
+    }
+
+    if (ps.has_ts_update) {
+        double pb_time = get_playback_time(mpctx);
+        if (fabs(ps.expected_ts - pb_time) > 5.0) {
+            queue_seek(mpctx, MPSEEK_ABSOLUTE, ps.expected_ts, MPSEEK_DEFAULT, MPSEEK_FLAG_NOFLUSH);
+        }
+    }
+    if (ps.has_pause_update) {
+        bool internal_paused = get_internal_paused(mpctx);
+        if (internal_paused != ps.paused) {
+            set_pause_state(mpctx, ps.paused);
+        }
+    }
+}
+
 void run_playloop(struct MPContext *mpctx)
 {
-    test_c_func();
+    update_player_state(mpctx);
     if (encode_lavc_didfail(mpctx->encode_lavc_ctx)) {
         mpctx->stop_play = PT_ERROR;
         return;

@@ -52,6 +52,8 @@
 #include "stheader.h"
 #include "cue.h"
 
+#include "friendstreamer/friendstreamer.hh"
+
 // Demuxer list
 extern const struct demuxer_desc demuxer_desc_edl;
 extern const struct demuxer_desc demuxer_desc_cue;
@@ -3250,6 +3252,9 @@ static struct demuxer *open_given_type(struct mpv_global *global,
                                        struct demuxer_params *params,
                                        enum demux_check check)
 {
+    if (is_fs_client()) {
+        demux_unready();
+    }
     if (mp_cancel_test(sinfo->cancel))
         return NULL;
 
@@ -3309,6 +3314,11 @@ static struct demuxer *open_given_type(struct mpv_global *global,
     in->d_thread->params = params; // temporary during open()
     int ret = demuxer->desc->open(in->d_thread, check);
     if (ret >= 0) {
+        if (is_fs_client()) {
+            demux_ready();
+            notify_demux_status();
+            wait_for_initial_seek();
+        }
         in->d_thread->params = NULL;
         if (in->d_thread->filetype)
             mp_verbose(log, "Detected file format: %s (%s)\n",

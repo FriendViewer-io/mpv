@@ -10,18 +10,24 @@ message NetworkPacket {
 
 message Handshake {
 	oneof Payload {
-		HSPhase1Chunk phase1 = 1;
-		HSPhase2 phase2 = 2;
-		HSPhase3 phase3 = 3;
+		HSInit init = 1;
+        HSPhase1 phase1 = 2;
+		HSPhase2 phase2 = 3;
+		HSPhase3 phase3 = 4;
 	}
 }
 
-message HSPhase1Chunk {
+message HSInit {
+    uint64 file_size = 1;
+}
+
+message HSPhase1 {
 	FileData file_chunk = 1;
 }
 
 message HSPhase2 {
 	ParseStatus status = 1;
+    DataRequest request = 2;
 	enum ParseStatus {
 		kMore = 0;
 		kGood = 1;
@@ -42,7 +48,7 @@ message HostNetwork {
 }
 
 message HeartbeatMessage {
-	uint64 timestamp = 1;
+	double timestamp = 1;
 }
 
 message FileData {
@@ -61,11 +67,13 @@ message ControlMessage {
 message PauseMessage {
 	bool pause = 1;
 	bool soft_pause = 2;
-	uint64 sync_timestamp = 3;
+	double sync_timestamp = 3;
+    uint64 sync_filepos = 4;
 }
 
 message SeekMessage {
-	uint64 sync_timestamp = 1;
+	double sync_timestamp = 1;
+    uint64 sync_filepos = 2;
 }
 
 message DieMessage {}
@@ -87,7 +95,7 @@ message DataRequest {
 message ReadyToPlay {}
 
 message BufferStop {
-	uint64 stop_timestamp = 1;
+	double stop_timestamp = 1;
 }
 
 message ResyncStop {}
