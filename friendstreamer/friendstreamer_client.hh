@@ -10,8 +10,6 @@
 enum class ClientState : int {
     // Client has yet to connect, cache is uninitialized
     kUnconnected,
-    // Client is waiting for data to be provided by the network thread
-    kWaitingForData,
     // Client is waiting for the host to give a pause message
     kWaitingForCatchup,
     // Client (should) be paused, waiting to make sure we've got coverage
@@ -26,10 +24,10 @@ enum class ClientState : int {
 
 // With a mid-quality mkv (h264 + ogg), it seems that 64k stream reads were done about
 // once per second-ish, so this should be a good amount to back us up
-constexpr size_t kBufferingSize = 65536 * 20;
+constexpr size_t kBufferingSize = 65536 * 10;
 // We'll tell the host we're good to go once we have at least this many bytes buffered
 // ahead of us
-constexpr size_t kGoodToGoSize = 65536 * 5;
+constexpr size_t kGoodToGoSize = 65536 * 4;
 
 enum class PendReason {
     kBufferRequest,
@@ -48,6 +46,7 @@ struct MPVDataRequest {
 // these parameters should self-tune (make up some clever heuristic)
 
 struct ClientData {
+    std::unique_ptr<std::thread> network_thread;
     std::mutex client_data_m;
     std::condition_variable data_wakeup_cv;
     ClientState state;
@@ -55,7 +54,9 @@ struct ClientData {
     // Read by mpv, written by network
     FileCache cache;
     int64_t file_loc;
+    int64_t catchup_start;
     std::unique_ptr<AsioSocket> host_conn;
+    std::vector<MPVDataRequest> pending_intervals;
 
     // Read by network, written by mpv
     std::condition_variable network_wakeup_cv;

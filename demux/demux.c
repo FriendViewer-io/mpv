@@ -3369,6 +3369,8 @@ static struct demuxer *open_given_type(struct mpv_global *global,
         demuxer = sub ? sub : demuxer;
         return demuxer;
     }
+    demux_unready();
+    notify_demux_status();
 
     demuxer->stream = NULL;
     demux_free(demuxer);

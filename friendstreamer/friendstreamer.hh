@@ -14,6 +14,7 @@ typedef struct fs_data {
 typedef struct player_state {
     bool has_ts_update;
     double expected_ts;
+    uint64_t expected_file_pos;
     bool has_pause_update;
     bool paused;
 } player_state;
@@ -38,7 +39,11 @@ bool is_fs_client(void);
 bool is_fs_host(void);
 
 void on_host_seek(double pts);
+void on_host_seek_file(uint64_t fp);
 void on_host_pause(bool paused);
+
+void set_buffer_fill_point(uint64_t fp);
+void set_timestamp(double ts);
 
 #ifdef __cplusplus
 }

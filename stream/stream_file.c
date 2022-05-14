@@ -93,6 +93,8 @@ static int64_t get_size(stream_t *s)
 static int fill_buffer(stream_t *s, void *buffer, int max_len)
 {
     struct priv *p = s->priv;
+    size_t cur_file_pos = lseek(p->fd, 0, SEEK_CUR);
+    set_buffer_fill_point(cur_file_pos);
 
 #ifndef __MINGW32__
     if (p->use_poll) {
@@ -139,6 +141,7 @@ static int write_buffer(stream_t *s, void *buffer, int len)
 static int seek(stream_t *s, int64_t newpos)
 {
     struct priv *p = s->priv;
+    on_host_seek_file(newpos);
     return lseek(p->fd, newpos, SEEK_SET) != (off_t)-1;
 }
 

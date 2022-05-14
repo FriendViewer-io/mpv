@@ -25,9 +25,10 @@ static std::atomic<bool> s_is_ready_and_client = false;
 static void* mpctx_ptr = nullptr;
 static void(*wakeup_playloop_cb)(void*) = nullptr;
 static std::mutex s_client_player_state_m;
-static player_state s_client_player_state = {
+static player_state s_player_state_change = {
     .has_ts_update = false,
     .expected_ts = 0,
+    .expected_file_pos = 0,
     .has_pause_update = false,
     .paused = false,
 };
@@ -38,17 +39,21 @@ static std::mutex s_host_player_state_m;
 static player_state s_host_player_state = {
     .has_ts_update = false,
     .expected_ts = 0,
+    .expected_file_pos = 0,
     .has_pause_update = false,
     .paused = false,
 };
 static std::atomic<double> s_active_host_ts;
+static double s_last_pts = 0;
+static uint64_t s_last_fp = 0;
 
 extern "C" {
 int fs_fill_buffer(struct fs_data *s, void *buffer, int max_len) {
     if (s->is_host) {
         return 0;
     }
-    return fs_fill_buffer_client(*reinterpret_cast<ClientData*>(s->private_data), buffer, max_len); 
+    int val = fs_fill_buffer_client(*reinterpret_cast<ClientData*>(s->private_data), buffer, max_len); 
+    return val;
 }
 
 int fs_seek(struct fs_data *s, int64_t pos) {
@@ -91,14 +96,12 @@ void demux_unready() {
 void demux_ready() {
     std::lock_guard guard(s_client_demux_m);
     s_demux_ready = true;
-    printf("Demux ready!\n");
 }
 
 void notify_demux_status() {
     {
         std::lock_guard guard(s_client_demux_m);
         s_client_demux_wake = true;
-        printf("Notified FS for demux state!\n");
     }
     s_client_demux_cv.notify_one();
 }
@@ -115,11 +118,11 @@ void register_playloop_wakeup_cb(void(*callback)(void*), void* context) {
 
 bool pop_player_state(player_state* ps_out) {
     std::lock_guard guard(s_client_player_state_m);
-    if (!s_client_player_state.has_pause_update && !s_client_player_state.has_ts_update) {
+    if (!s_player_state_change.has_pause_update && !s_player_state_change.has_ts_update) {
         return false;
     }
-    *ps_out = s_client_player_state;
-    s_client_player_state.has_ts_update = s_client_player_state.has_pause_update = false;
+    *ps_out = s_player_state_change;
+    s_player_state_change.has_ts_update = s_player_state_change.has_pause_update = false;
     return true;
 }
 
@@ -133,14 +136,29 @@ bool is_fs_host() {
 
 void on_host_seek(double demux_pts) {
     std::lock_guard guard(s_host_player_state_m);
+    s_host_player_state.expected_ts = demux_pts;
+}
+
+void on_host_seek_file(uint64_t file_pos) {
+    std::lock_guard guard(s_host_player_state_m);
     s_host_player_state.has_ts_update = true;
-    s_host_player_state.expected_ts =  demux_pts;
+    s_host_player_state.expected_file_pos = file_pos;
 }
 
 void on_host_pause(bool paused) {
     std::lock_guard guard(s_host_player_state_m);
     s_host_player_state.has_pause_update = true;
     s_host_player_state.paused = paused;
+}
+
+void set_buffer_fill_point(uint64_t fp) {
+    std::lock_guard guard(s_host_player_state_m);
+    s_last_fp = fp;
+}
+
+void set_timestamp(double ts) {
+    std::lock_guard guard(s_host_player_state_m);
+    s_last_pts = ts;
 }
 }
 
@@ -171,18 +189,35 @@ void set_is_host() {
 
 void set_player_state_pause(bool paused) {
     std::lock_guard guard(s_client_player_state_m);
-    s_client_player_state.has_pause_update = true;
-    s_client_player_state.paused = paused;
+    s_player_state_change.has_pause_update = true;
+    s_player_state_change.paused = paused;
+    wakeup_playloop();
 }
 
 void set_player_state_ts(double ts) {
     std::lock_guard guard(s_client_player_state_m);
-    s_client_player_state.has_ts_update = true;
-    s_client_player_state.expected_ts = ts;
+    s_player_state_change.has_ts_update = true;
+    s_player_state_change.expected_ts = ts;
+    wakeup_playloop();
 }
 
 void notify_initial_seek() {
     std::lock_guard guard(s_client_demux_m);
     s_did_initial_seek = true;
     s_client_demux_cv.notify_one();
+}
+
+bool pop_host_state(player_state* ps_out) {
+    std::lock_guard guard(s_host_player_state_m);
+    if (!s_host_player_state.has_pause_update && !s_host_player_state.has_ts_update) {
+        return false;
+    }
+    *ps_out = s_host_player_state;
+    s_host_player_state.has_ts_update = s_host_player_state.has_pause_update = false;
+    return true;
+}
+
+std::pair<double, uint64_t> get_last_fill_point() {
+    std::lock_guard guard(s_host_player_state_m);
+    return std::make_pair(s_last_pts, s_last_fp);
 }

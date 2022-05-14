@@ -154,18 +154,16 @@ bool get_internal_paused(struct MPContext *mpctx)
     return mpctx->opts->pause || mpctx->paused_for_cache;
 }
 
-// The value passed here is the new value for mpctx->opts->pause
-void set_pause_state(struct MPContext *mpctx, bool user_pause)
-{
+static void set_pause_state_internal(struct MPContext *mpctx, bool user_pause, bool update_fp) {
     struct MPOpts *opts = mpctx->opts;
 
     opts->pause = user_pause;
 
-    if (is_fs_host()) {
-        on_host_pause(user_pause);
-    }
     bool internal_paused = get_internal_paused(mpctx);
     if (internal_paused != mpctx->paused) {
+        if (update_fp && is_fs_host()) {
+            on_host_pause(user_pause);
+        }
         mpctx->paused = internal_paused;
 
         if (mpctx->ao)
@@ -190,6 +188,12 @@ void set_pause_state(struct MPContext *mpctx, bool user_pause)
     update_core_idle_state(mpctx);
 
     m_config_notify_change_opt_ptr(mpctx->mconfig, &opts->pause);
+}
+
+// The value passed here is the new value for mpctx->opts->pause
+void set_pause_state(struct MPContext *mpctx, bool user_pause)
+{
+    set_pause_state_internal(mpctx, user_pause, true);
 }
 
 void update_internal_pause_state(struct MPContext *mpctx)
@@ -1079,6 +1083,7 @@ static void handle_playback_time(struct MPContext *mpctx)
         mpctx->video_status < STATUS_EOF)
     {
         mpctx->playback_pts = mpctx->video_pts;
+        set_timestamp(mpctx->playback_pts);
     } else if (mpctx->audio_status >= STATUS_PLAYING &&
                mpctx->audio_status < STATUS_EOF)
     {
@@ -1196,26 +1201,16 @@ static void handle_eof(struct MPContext *mpctx)
 }
 
 void update_player_state(struct MPContext *mpctx) {
-    if (!is_fs_client()) {
-        return;
-    }
-
     player_state ps;
     if (!pop_player_state(&ps)) {
         return;
     }
 
     if (ps.has_ts_update) {
-        double pb_time = get_playback_time(mpctx);
-        if (fabs(ps.expected_ts - pb_time) > 5.0) {
-            queue_seek(mpctx, MPSEEK_ABSOLUTE, ps.expected_ts, MPSEEK_DEFAULT, MPSEEK_FLAG_NOFLUSH);
-        }
+        queue_seek(mpctx, MPSEEK_ABSOLUTE, ps.expected_ts, MPSEEK_DEFAULT, MPSEEK_FLAG_NOFLUSH);
     }
     if (ps.has_pause_update) {
-        bool internal_paused = get_internal_paused(mpctx);
-        if (internal_paused != ps.paused) {
-            set_pause_state(mpctx, ps.paused);
-        }
+        set_pause_state_internal(mpctx, ps.paused, false);
     }
 }
 

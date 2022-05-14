@@ -8,12 +8,34 @@
 
 #include "fs_networking.hh"
 
+enum class ClientTrackerState {
+    kInitial,
+    kHandshaking,
+    kNormal,
+};
+
+struct ClientTracker {
+    AsioSocket conn;
+    ClientTrackerState state;
+
+    ClientTracker(AsioSocket&& skt)
+        : conn(std::move(skt)), state(ClientTrackerState::kInitial) {}
+};
+
+enum class HostState {
+    kPlaying,
+    kPaused,
+    kWaitingForReady,
+};
+
 struct HostData {
-    std::vector<AsioSocket> clients;
+    std::mutex host_data_m;
+    HostState state = HostState::kPlaying;
+    size_t file_size;
+    std::vector<ClientTracker> clients;
     std::unique_ptr<std::thread> acceptor_thread;
     std::unique_ptr<std::thread> network_thread;
     std::ifstream streamed_file_handle;
-    std::mutex host_data_m;
     std::shared_ptr<asio::io_service> io_svc;
 };
 

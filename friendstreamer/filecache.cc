@@ -85,7 +85,7 @@ std::optional<Interval> FileCacheTracker::find_unfilled_after(uint64_t start_poi
 FileCache::FileCache() : tracker(nullptr) {}
 
 bool FileCache::create_cache(std::string filename, size_t file_size) {
-    file_io.open(filename);
+    file_io.open(filename, std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
     if (file_io.is_open()) {
         tracker = std::make_unique<FileCacheTracker>(file_size);
         return true;
@@ -94,8 +94,10 @@ bool FileCache::create_cache(std::string filename, size_t file_size) {
 }
 
 void FileCache::write_data(void const* data, size_t len, size_t offset) {
-    file_io.seekg(offset);
+    file_io.seekp(offset);
     file_io.write(reinterpret_cast<char const*>(data), len);
+    file_io.flush();
+    tracker->add_interval(Interval(offset, offset + len));
 }
 
 bool FileCache::has_data_at(Interval file_interval) {
@@ -142,7 +144,7 @@ std::vector<uint8_t> FileCache::read_data(Interval iv) {
     const size_t buf_size = iv.right - iv.left;
     buffer.resize(buf_size);
 
-    file_io.seekp(iv.left);
+    file_io.seekg(iv.left);
     file_io.read(reinterpret_cast<char*>(buffer.data()), buf_size);
     return buffer;
 

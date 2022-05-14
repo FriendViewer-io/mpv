@@ -63,6 +63,8 @@
 #include "command.h"
 #include "libmpv/client.h"
 
+#include "friendstreamer/friendstreamer.hh"
+
 // Called from the demuxer thread if a new packet is available, or other changes.
 static void wakeup_demux(void *pctx)
 {
@@ -1672,6 +1674,7 @@ static void play_current_file(struct MPContext *mpctx)
 
     open_recorder(mpctx, true);
 
+    register_playloop_wakeup_cb(&mp_wakeup_core, mpctx);
     playback_start = mp_time_sec();
     mpctx->error_playing = 0;
     mpctx->in_playloop = true;
