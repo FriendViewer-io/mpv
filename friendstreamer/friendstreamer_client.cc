@@ -255,57 +255,59 @@ static std::pair<double, uint64_t> client_handshake(ClientData* data) {
 
     // Begin requesting and receiving of data chunks until demuxer is chosen
     while (!demuxer_good()) {
-        data->network_wakeup_cv.wait(lock, [&data] { return data->has_pending_request; });
+        data->network_wakeup_cv.wait_for(lock, std::chrono::milliseconds(16), [&data] { return data->has_pending_request; });
 
-        std::vector<Interval> pending_fills = std::move(data->requested_intervals);
-        data->has_pending_request = false;
-        for (auto const& iv : pending_fills) {
-            NetworkPacket data_req;
-            data_req.mutable_hs()->mutable_phase2()->set_status(HSPhase2_ParseStatus_kMore);
-            data_req.mutable_hs()->mutable_phase2()->mutable_request()->set_file_off(iv.left);
-            data_req.mutable_hs()->mutable_phase2()->mutable_request()->set_length(iv.right - iv.left);
-            send_packet(*data->host_conn, data_req);
-            data->pending_intervals.push_back({iv, PendReason::kBlockingRequest});
-        }
-        // Demux choose phase should never-ever receive have buffer_block be true, since no video is playing
-        // For my own sanity, I'll assume the host will send back an equal number of responses to reqs
-        // not coalescing things. If I decide to get smart later, shoot me
-        while (!data->pending_intervals.empty()) {
-            auto pkt_opt = recv_packet(*data->host_conn);
-            if (!pkt_opt->has_hs()) {
-                perror("Received unexpected message from host during demux choose, expected hs\n");
+        if (data->has_pending_request) {
+            std::vector<Interval> pending_fills = std::move(data->requested_intervals);
+            data->has_pending_request = false;
+            for (auto const& iv : pending_fills) {
+                NetworkPacket data_req;
+                data_req.mutable_hs()->mutable_phase2()->set_status(HSPhase2_ParseStatus_kMore);
+                data_req.mutable_hs()->mutable_phase2()->mutable_request()->set_file_off(iv.left);
+                data_req.mutable_hs()->mutable_phase2()->mutable_request()->set_length(iv.right - iv.left);
+                send_packet(*data->host_conn, data_req);
+                data->pending_intervals.push_back({iv, PendReason::kBlockingRequest});
+            }
+            // Demux choose phase should never-ever receive have buffer_block be true, since no video is playing
+            // For my own sanity, I'll assume the host will send back an equal number of responses to reqs
+            // not coalescing things. If I decide to get smart later, shoot me
+            while (!data->pending_intervals.empty()) {
+                auto pkt_opt = recv_packet(*data->host_conn);
+                if (!pkt_opt->has_hs()) {
+                    perror("Received unexpected message from host during demux choose, expected hs\n");
+                    return std::make_pair(0.0, -1);
+                }
+                if (!pkt_opt->hs().has_phase1()) {
+                    perror("Received unexpected message from host during demux choose, expected phase2\n");
+                    return std::make_pair(0.0, -1);
+                }
+                FileData const& hs_chunk = pkt_opt->hs().phase1().file_chunk();
+                data->cache.write_data(hs_chunk.raw_data().data(),
+                                       hs_chunk.raw_data().size(),
+                                       hs_chunk.file_offset());
+                auto found_iv = std::find_if(data->pending_intervals.begin(), data->pending_intervals.end(),
+                    [&hs_chunk] (MPVDataRequest const& data_req) {
+                        return data_req.req ==
+                               Interval(hs_chunk.file_offset(), hs_chunk.file_offset() + hs_chunk.raw_data().size());
+                    });
+                if (found_iv == data->pending_intervals.end()) {
+                    perror("Received unexpected region!");
+                    return std::make_pair(0.0, -1);
+                }
+                data->pending_intervals.erase(found_iv);
+            }
+            data->data_wakeup_cv.notify_one();
+            data->network_wakeup_cv.wait(lock, [&data] { return data->has_pending_request; });
+            data->has_pending_request = false;
+            if (data->reason != PendReason::kCheckDemuxStatus) {
+                perror("Unexpected pend reason during demux choose\n");
                 return std::make_pair(0.0, -1);
             }
-            if (!pkt_opt->hs().has_phase1()) {
-                perror("Received unexpected message from host during demux choose, expected phase2\n");
-                return std::make_pair(0.0, -1);
-            }
-            FileData const& hs_chunk = pkt_opt->hs().phase1().file_chunk();
-            data->cache.write_data(hs_chunk.raw_data().data(),
-                                   hs_chunk.raw_data().size(),
-                                   hs_chunk.file_offset());
-            auto found_iv = std::find_if(data->pending_intervals.begin(), data->pending_intervals.end(),
-                [&hs_chunk] (MPVDataRequest const& data_req) {
-                    return data_req.req ==
-                           Interval(hs_chunk.file_offset(), hs_chunk.file_offset() + hs_chunk.raw_data().size());
-                });
-            if (found_iv == data->pending_intervals.end()) {
-                perror("Received unexpected region!");
-                return std::make_pair(0.0, -1);
-            }
-            data->pending_intervals.erase(found_iv);
-        }
-        data->data_wakeup_cv.notify_one();
-        data->network_wakeup_cv.wait(lock, [&data] { return data->has_pending_request; });
-        data->has_pending_request = false;
-        if (data->reason != PendReason::kCheckDemuxStatus) {
-            perror("Unexpected pend reason during demux choose\n");
-            return std::make_pair(0.0, -1);
-        }
 
-        lock.unlock();
-        block_for_demuxer();
-        lock.lock();
+            lock.unlock();
+            block_for_demuxer();
+            lock.lock();
+        }
     }
     NetworkPacket response;
     response.mutable_hs()->mutable_phase2()->set_status(HSPhase2_ParseStatus_kGood);
